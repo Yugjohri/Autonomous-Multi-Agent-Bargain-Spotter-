@@ -1,0 +1,6 @@
+openai
+chromadb
+langchain
+numpy
+pandas
+jupyter
