@@ -12,3 +12,9 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Model checkpoints
+*.pth
+
+# Local data (rebuild with populate_vectorstore.py)
+products_vectorstore/
