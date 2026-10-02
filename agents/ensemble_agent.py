@@ -5,7 +5,7 @@ from agents.config import get, load_settings
 from agents.deals import Deal
 from agents.inr_store import InrItem, InrProductStore
 from agents.money import format_money
-from agents.price_signal import Valuation, value_inr
+from agents.price_signal import Valuation, cap_for_multipack, value_inr
 
 LEGACY_WEIGHTS = {"frontier": 0.8, "specialist": 0.1, "neural_network": 0.1}
 
@@ -113,6 +113,7 @@ class EnsembleAgent(Agent):
             market_min_items=int(self.weights.get("market_min_items", 3)),
             sources_count=len(deal.seen_in) or 1,
         )
+        valuation = cap_for_multipack(valuation, text)
         direction = "below" if valuation.discount_pct >= 0 else "above"
         self.log(
             f"Ensemble Agent valued {format_money(deal.price)} deal at {format_money(valuation.estimate)} "

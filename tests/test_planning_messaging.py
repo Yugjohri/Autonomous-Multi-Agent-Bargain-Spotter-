@@ -85,7 +85,7 @@ def test_category_cooldown_uses_memory():
 def test_plan_alerts_only_confident_deals_and_returns_list():
     deals = [Deal(product_description=t, title=t, price=1000, url=f"https://www.amazon.in/dp/B0000000{i}{i}", category=c)
              for i, (t, c) in enumerate([("hi", "Audio"), ("lo", "Mobiles")])]
-    scanner = SimpleNamespace(scan=lambda memory, extra=None: DealSelection(deals=deals), last_candidates=[])
+    scanner = SimpleNamespace(scan=lambda memory, extra=None, fetch=True: DealSelection(deals=deals), last_candidates=[])
     ensemble = SimpleNamespace(value=lambda d: Valuation(3000, 2000, 66.7, "high" if d.title == "hi" else "low", "r"))
     p = planner(scanner=scanner, ensemble=ensemble)
     result = p.plan(memory=[])

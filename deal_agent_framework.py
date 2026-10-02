@@ -185,13 +185,21 @@ class DealAgentFramework:
             except queue.Empty:
                 return items
 
-    def run(self, extra: Optional[list] = None) -> List[Opportunity]:
-        """One pipeline run. Serialized: the 5 minute timer and live Telegram posts share it."""
+    def run(self, extra: Optional[list] = None, live: bool = False) -> List[Opportunity]:
+        """
+        One pipeline run. Serialized: the 5 minute timer and live Telegram posts share it.
+        :param live: process only the given live posts, without re-reading every source
+        """
         with self._run_lock:
             self.init_agents_as_needed()
             extra = list(extra or []) + self.drain_live()
-            logging.info("Kicking off Planning Agent")
-            result = self.planner.plan(memory=self.memory, extra=extra) if extra else self.planner.plan(memory=self.memory)
+            if live and not extra:
+                return self.memory
+            logging.info("Kicking off Planning Agent" + (f" for {len(extra)} live post(s)" if live else ""))
+            if extra or live:
+                result = self.planner.plan(memory=self.memory, extra=extra, fetch=not live)
+            else:
+                result = self.planner.plan(memory=self.memory)
             if isinstance(result, Opportunity):
                 result = [result]
             result = result or []
@@ -226,7 +234,7 @@ class DealAgentFramework:
                 batch = [first] + self.drain_live()
                 self.log(f"{len(batch)} live Telegram post(s) arrived; running the pipeline")
                 try:
-                    self.run(extra=batch)
+                    self.run(extra=batch, live=True)
                 except Exception as exc:  # noqa: BLE001
                     self.log(f"Live run failed: {exc}")
 

@@ -10,6 +10,7 @@ The estimate is the weighted mean of the signals that are available. Confidence 
 on how many independent signals exist and whether they agree, not on the discount size.
 """
 
+import re
 import statistics
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -46,6 +47,30 @@ def market_evidence(similars: List[Similar], max_distance: float = 0.45, min_ite
         return None
     close.sort()
     return MarketEvidence(statistics.median(close), len(close), close[0], close[-1])
+
+
+# Combos and multipacks: similar listings and GPT usually price a single unit, so the
+# comparison is unreliable. "12-in-1", "3 jars" or "4GB" are not multipacks.
+MULTIPACK_RE = re.compile(
+    r"\bcombo\b|\bmulti-?pack\b|\bbundle\b|\b(pack|set) of\s*(?:[2-9]|\d{2,})\b|"
+    r"\b(?:[2-9]|\d{2,})\s*-?\s*(?:pcs|pieces|pack|units|packs)\b|\b(?:[2-9]|\d{2,})\s*x\s*\d|"
+    r"\bbuy\s*\d+\s*get\s*\d+\b|\bb\d+g\d+\b",
+    re.IGNORECASE,
+)
+
+
+def is_multipack(text: str) -> bool:
+    return bool(MULTIPACK_RE.search(text or ""))
+
+
+def cap_for_multipack(valuation: "Valuation", text: str) -> "Valuation":
+    """Combos and multipacks stay visible but never above low confidence."""
+    if is_multipack(text) and valuation.confidence != "low":
+        valuation.confidence = "low"
+        valuation.reason = f"combo or multipack, per-unit comparison unreliable; {valuation.reason}"
+    elif is_multipack(text) and "multipack" not in valuation.reason:
+        valuation.reason = f"combo or multipack; {valuation.reason}"
+    return valuation
 
 
 def _gap(a: float, b: float) -> float:

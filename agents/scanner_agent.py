@@ -154,8 +154,12 @@ Write product_description about the product itself (specs, model, variant), not 
         if written:
             self.log(f"Scanner Agent logged {written} new observations")
 
-    def candidates(self, memory, extra: Optional[List[RawDeal]] = None) -> List[Candidate]:
-        raws = self.fetch_raw() + list(extra or [])
+    def candidates(self, memory, extra: Optional[List[RawDeal]] = None, fetch: bool = True) -> List[Candidate]:
+        """
+        :param extra: posts that arrived live since the last scan
+        :param fetch: False for a live run, which processes only `extra` and does not re-read sources
+        """
+        raws = (self.fetch_raw() if fetch else []) + list(extra or [])
         self.last_raw = raws
         seen = self.seen_store.index(SeenIndex.from_opportunities(memory))
         candidates, report = build_candidates(
@@ -261,8 +265,8 @@ Write product_description about the product itself (specs, model, variant), not 
             highest_price=c.raw.highest_price_hint,
         )
 
-    def scan_inr(self, memory, extra: Optional[List[RawDeal]] = None) -> Optional[DealSelection]:
-        candidates = self.candidates(memory, extra)
+    def scan_inr(self, memory, extra: Optional[List[RawDeal]] = None, fetch: bool = True) -> Optional[DealSelection]:
+        candidates = self.candidates(memory, extra, fetch=fetch)
         if not candidates:
             self.log("Scanner Agent found no new candidates")
             return None
@@ -329,15 +333,16 @@ Write product_description about the product itself (specs, model, variant), not 
 
     # ---------------------------------------------------------------- entry
 
-    def scan(self, memory: List = [], extra: Optional[List[RawDeal]] = None) -> Optional[DealSelection]:
+    def scan(self, memory: List = [], extra: Optional[List[RawDeal]] = None, fetch: bool = True) -> Optional[DealSelection]:
         """
         Find new deals and return the best few, or None if there aren't any
         :param memory: Opportunities surfaced before, used to skip known deals
         :param extra: posts that arrived live (Telegram) since the last scan
+        :param fetch: False to process only `extra` (live runs) without re-reading every source
         """
         if self.mode == "usd_legacy":
             return self.scan_legacy(memory)
-        return self.scan_inr(memory, extra)
+        return self.scan_inr(memory, extra, fetch=fetch)
 
     def test_scan(self, memory: List = []) -> Optional[DealSelection]:
         """

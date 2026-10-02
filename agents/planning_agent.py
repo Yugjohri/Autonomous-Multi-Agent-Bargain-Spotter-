@@ -107,7 +107,8 @@ class PlanningAgent(Agent):
             found_at=datetime.now(timezone.utc),
         )
 
-    def plan(self, memory: List[Opportunity] = [], extra: Optional[List[RawDeal]] = None) -> List[Opportunity]:
+    def plan(self, memory: List[Opportunity] = [], extra: Optional[List[RawDeal]] = None,
+             fetch: bool = True) -> List[Opportunity]:
         """
         Run the full workflow:
         1. Use the ScannerAgent to find deals from all sources
@@ -115,10 +116,11 @@ class PlanningAgent(Agent):
         3. Use the MessagingAgent to send notifications for the best few
         :param memory: Opportunities surfaced in the past
         :param extra: posts that arrived live since the last scan
+        :param fetch: False for live runs, which process only `extra`
         :return: the Opportunities surfaced in this run (possibly empty)
         """
         self.log("Planning Agent is kicking off a run")
-        selection = self.scanner.scan(memory=memory, extra=extra)
+        selection = self.scanner.scan(memory=memory, extra=extra, fetch=fetch)
         if self.remember and self.mode == "inr":
             candidates = getattr(self.scanner, "last_candidates", [])
             if candidates:
