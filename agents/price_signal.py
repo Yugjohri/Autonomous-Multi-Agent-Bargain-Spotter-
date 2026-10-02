@@ -83,7 +83,8 @@ def value_inr(
         return Valuation(price, 0.0, 0.0, "low", "no valuation signal available", signals)
 
     total = sum(weights[k] for k in usable)
-    estimate = sum(weights[k] * v for k, v in usable.items()) / total
+    # Whole rupees: a blended estimate is not precise to the paisa.
+    estimate = round(sum(weights[k] * v for k, v in usable.items()) / total)
     discount = estimate - price
     discount_pct = round(100 * discount / estimate, 1) if estimate > 0 else 0.0
 

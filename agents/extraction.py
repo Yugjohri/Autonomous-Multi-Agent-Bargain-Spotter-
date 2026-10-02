@@ -91,11 +91,37 @@ class Candidate:
         )
 
 
+STOPWORDS = {
+    "the", "and", "for", "with", "pack", "set", "combo", "deal", "loot", "offer", "new", "buy", "online",
+    "india", "black", "white", "blue", "red", "grey", "green", "men", "women", "kids", "free", "off",
+}
+
+
+def _words(text: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9]{3,}", (text or "").lower()) if w not in STOPWORDS}
+
+
+def link_matches_title(title: str, resolved_url: str) -> bool:
+    """
+    False when the post title and the product slug of the resolved link share no word,
+    e.g. a "Titan Talk Smartwatch" post whose short link leads to a wall charger.
+    Links without a readable slug (bare /dp/ASIN) cannot be checked and pass.
+    """
+    slug = title_from_url(resolved_url)
+    if not slug or not title:
+        return True
+    return bool(_words(title) & _words(slug))
+
+
 def to_candidate(raw: RawDeal, resolver: Optional[RedirectResolver]) -> Optional[Candidate]:
     """Normalize one priceable post. Returns None if it has no usable link or price."""
     if not raw.priceable or raw.price_hint is None or not raw.url:
         return None
     link = normalize_link(raw.url, resolver)
+    if not link_matches_title(raw.title, link.resolved):
+        logger.info(f"Dropping '{raw.title}': its link leads to a different product ({title_from_url(link.resolved)})")
+        raw.priceable, raw.drop_reason = False, "link_mismatch"
+        return None
     if link.store == "other" and raw.store != "other":
         # Unresolvable link (e.g. robots.txt forbids it): trust the store named in the post.
         link.store = raw.store

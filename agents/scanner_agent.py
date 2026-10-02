@@ -7,7 +7,7 @@ from agents.config import get, load_settings, load_sources_config
 from agents.deals import Deal, DealSelection, InrPick, InrSelection, LegacyDealSelection, ScrapedDeal
 from agents.extraction import Candidate, SeenStore, build_candidates, rank_candidates
 from agents.money import format_money
-from agents.normalize import RedirectResolver, SeenIndex, normalize_link
+from agents.normalize import RedirectResolver, SeenIndex, is_fresh, normalize_link
 from agents.observations import ObservationLog, observation_row
 from agents.sources import build_http, build_sources
 from agents.sources.base import DealSource, RawDeal
@@ -111,7 +111,7 @@ Write product_description about the product itself (specs, model, variant), not 
         Each source isolates its own failures; a source that overruns the budget is skipped
         for this scan (and not started again while its previous fetch is still running).
         """
-        limit = 60
+        limit = int(get(self.settings, "scan.per_source_limit", 30))
         budget = float(get(self.settings, "scan.time_budget_seconds", 120))
         if self._executor is None:
             workers = int(get(self.settings, "scan.source_workers", 6))
@@ -138,13 +138,17 @@ Write product_description about the product itself (specs, model, variant), not 
         if self.observations is None or not raws:
             return
         rows = []
+        freshness = float(get(self.settings, "scan.freshness_hours", 6))
         for raw in raws:
             if raw.currency != "INR":
                 continue
             link = None
             if raw.url:
-                # Only priceable posts are worth a network resolution; the rest are normalized offline.
-                link = normalize_link(raw.url, self.resolver if raw.priceable else None)
+                # Only fresh priceable posts are worth a network resolution (and were usually
+                # resolved already by the pre-filter, so this hits the cache); the rest are
+                # normalized offline to keep scans fast.
+                worth_resolving = raw.priceable and is_fresh(raw.posted_at, freshness)
+                link = normalize_link(raw.url, self.resolver if worth_resolving else None)
             rows.append(observation_row(raw, link))
         written = self.observations.append(rows)
         if written:
@@ -153,10 +157,6 @@ Write product_description about the product itself (specs, model, variant), not 
     def candidates(self, memory, extra: Optional[List[RawDeal]] = None) -> List[Candidate]:
         raws = self.fetch_raw() + list(extra or [])
         self.last_raw = raws
-        try:
-            self.log_observations(raws)
-        except OSError as exc:
-            self.log(f"Could not write observations: {exc}")
         seen = self.seen_store.index(SeenIndex.from_opportunities(memory))
         candidates, report = build_candidates(
             raws,
@@ -164,6 +164,11 @@ Write product_description about the product itself (specs, model, variant), not 
             seen,
             freshness_hours=float(get(self.settings, "scan.freshness_hours", 6)),
         )
+        # Logged after the pre-filter so resolutions are cached and link mismatches are marked.
+        try:
+            self.log_observations(raws)
+        except OSError as exc:
+            self.log(f"Could not write observations: {exc}")
         self.last_report = report
         self.last_candidates = candidates
         self.resolver.cache.flush()

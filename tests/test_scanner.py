@@ -139,6 +139,21 @@ def test_cross_channel_duplicates_count_once_with_all_sources():
     assert candidates[0].seen_in == ["telegram:DCLootsOffers", "telegram:OMGDeals"]
 
 
+def test_post_whose_link_leads_to_another_product_is_dropped():
+    # Real case from 2 Oct 2026: a "Titan Talk Smartwatch" post whose short link led to a wall charger.
+    from agents.cache import MemoryCache
+
+    cache = MemoryCache()
+    cache.set("https://grbn.in/7LfC12", "https://www.flipkart.com/v7-12-w-2-1-wall-charger-mobile/p/itme1101acaa86cb?pid=X")
+    cache.set("https://fkrt.cc/ok", "https://dl.flipkart.com/dl/titan-talk-smartwatch-black/p/itm0123456789ab?pid=Y")
+    now = datetime.now(timezone.utc)
+    bad = parse_post("Titan Talk Smartwatch\nNow only ₹4,784 (MRP ₹14,995)\nhttps://grbn.in/7LfC12", "GrabOn", 1, now)
+    good = parse_post("Titan Talk Smartwatch\nNow only ₹4,784 (MRP ₹14,995)\nhttps://fkrt.cc/ok", "GrabOn", 2, now)
+    candidates, _ = build_candidates([bad, good], RedirectResolver(None, cache), SeenIndex(), 6)
+    assert [c.raw.external_id for c in candidates] == ["telegram:GrabOn/2"]
+    assert bad.drop_reason == "link_mismatch"
+
+
 @pytest.mark.parametrize("price, new", [(264, False), (300, False), (199, True)])
 def test_memory_dedupe_uses_canonical_id_and_price(price, new):
     now = datetime.now(timezone.utc)

@@ -39,6 +39,8 @@ planning:
 scan:
   # Loot deals expire fast; older posts are ignored.
   freshness_hours: 6
+  # Posts read from each source per scan (Telegram: per channel).
+  per_source_limit: 30
   # At most this many candidates reach the LLM per scan.
   max_llm_candidates: 30
   picks_per_scan: 5

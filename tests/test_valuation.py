@@ -23,9 +23,9 @@ def similars(prices, distance=0.2):
 def test_all_signals_agree_high_confidence():
     v = value_inr(price=1099, mrp=4490, llm_estimate=1799, similars=similars([1650, 1700, 1800, 1750, 1999]))
     assert v.confidence == "high"
-    # 0.6*1799 + 0.3*1750 + 0.1*(4490*0.75) = 1079.4 + 525 + 336.75 = 1941.15
-    assert v.estimate == pytest.approx(1941.15)
-    assert v.discount == pytest.approx(842.15)
+    # 0.6*1799 + 0.3*1750 + 0.1*(4490*0.75) = 1079.4 + 525 + 336.75 = 1941.15, kept in whole rupees
+    assert v.estimate == 1941
+    assert v.discount == 842
     assert v.discount_pct == pytest.approx(43.4)
     assert "GPT and market agree" in v.reason
 
@@ -39,7 +39,7 @@ def test_disagreeing_signals_lower_confidence():
 def test_mrp_only_is_low_confidence():
     v = value_inr(price=4784, mrp=14995)
     assert v.confidence == "low"
-    assert v.estimate == pytest.approx(14995 * 0.75)
+    assert v.estimate == round(14995 * 0.75)
     assert "only one signal (mrp)" in v.reason
 
 
@@ -122,7 +122,7 @@ def test_ensemble_survives_frontier_failure(store):
     ensemble = EnsembleAgent(settings=SETTINGS, inr_store=store, frontier=Broken())
     deal = Deal(product_description="x", title="Phone", price=9999, url="https://www.amazon.in/dp/B0ABCDEFGH", mrp=15999)
     v = ensemble.value(deal)
-    assert v.confidence == "low" and v.estimate == pytest.approx(15999 * 0.75)
+    assert v.confidence == "low" and v.estimate == round(15999 * 0.75)
 
 
 def test_price_in_legacy_api_refuses_inr_mode(store):
