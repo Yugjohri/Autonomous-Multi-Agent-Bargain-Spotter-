@@ -26,9 +26,10 @@ class PlanningAgent(Agent):
         self.mode = self.settings.get("pricer_mode", "inr")
         self.remember = remember
         if scanner is None:
+            from agents.observations import ObservationLog
             from agents.scanner_agent import ScannerAgent
 
-            scanner = ScannerAgent(settings=self.settings, offline=offline)
+            scanner = ScannerAgent(settings=self.settings, offline=offline, observations=ObservationLog())
         if ensemble is None:
             from agents.ensemble_agent import EnsembleAgent
 

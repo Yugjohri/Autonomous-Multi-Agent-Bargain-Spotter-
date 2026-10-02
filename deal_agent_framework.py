@@ -106,7 +106,7 @@ class DealAgentFramework:
         self.FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
         # A fixture run starts clean every time and never touches the real memory.json.
         self.MEMORY_FILENAME = str(self.FIXTURE_DIR / "memory.json")
-        for name in ("memory.json", "seen.json"):
+        for name in ("memory.json", "seen.json", "observations.jsonl"):
             path = self.FIXTURE_DIR / name
             if path.exists():
                 path.unlink()
@@ -115,6 +115,7 @@ class DealAgentFramework:
         from agents.cache import MemoryCache
         from agents.extraction import SeenStore
         from agents.normalize import RedirectResolver
+        from agents.observations import ObservationLog
         from agents.planning_agent import PlanningAgent
         from agents.scanner_agent import ScannerAgent
         from agents.sources.fixture import FixtureSource, load_fixture_redirects
@@ -129,6 +130,7 @@ class DealAgentFramework:
             seen_store=SeenStore(self.FIXTURE_DIR / "seen.json"),
             offline=True,
             sources_config={},
+            observations=ObservationLog(self.FIXTURE_DIR / "observations.jsonl"),
         )
         return PlanningAgent(settings=self.settings, scanner=scanner, offline=True, dry_run=True, remember=False)
 

@@ -6,7 +6,8 @@ from agents.config import get, load_settings, load_sources_config
 from agents.deals import Deal, DealSelection, InrPick, InrSelection, LegacyDealSelection, ScrapedDeal
 from agents.extraction import Candidate, SeenStore, build_candidates, rank_candidates
 from agents.money import format_money
-from agents.normalize import RedirectResolver, SeenIndex
+from agents.normalize import RedirectResolver, SeenIndex, normalize_link
+from agents.observations import ObservationLog, observation_row
 from agents.sources import build_http, build_sources
 from agents.sources.base import DealSource, RawDeal
 
@@ -67,6 +68,7 @@ Write product_description about the product itself (specs, model, variant), not 
         seen_store: Optional[SeenStore] = None,
         offline: bool = False,
         sources_config: Optional[dict] = None,
+        observations: Optional[ObservationLog] = None,
     ):
         """
         Set up this instance. Sources, the OpenAI client and the resolver can be injected
@@ -87,6 +89,7 @@ Write product_description about the product itself (specs, model, variant), not 
             offline=offline,
         )
         self.seen_store = seen_store or SeenStore()
+        self.observations = observations
         self.openai = client
         if self.openai is None and not offline:
             from openai import OpenAI
@@ -107,9 +110,30 @@ Write product_description about the product itself (specs, model, variant), not 
             raws.extend(source.fetch(limit))
         return raws
 
+    def log_observations(self, raws: List[RawDeal]) -> None:
+        """Append every parsed post (before any filtering) to the observation log."""
+        if self.observations is None or not raws:
+            return
+        rows = []
+        for raw in raws:
+            if raw.currency != "INR":
+                continue
+            link = None
+            if raw.url:
+                # Only priceable posts are worth a network resolution; the rest are normalized offline.
+                link = normalize_link(raw.url, self.resolver if raw.priceable else None)
+            rows.append(observation_row(raw, link))
+        written = self.observations.append(rows)
+        if written:
+            self.log(f"Scanner Agent logged {written} new observations")
+
     def candidates(self, memory, extra: Optional[List[RawDeal]] = None) -> List[Candidate]:
         raws = self.fetch_raw() + list(extra or [])
         self.last_raw = raws
+        try:
+            self.log_observations(raws)
+        except OSError as exc:
+            self.log(f"Could not write observations: {exc}")
         seen = self.seen_store.index(SeenIndex.from_opportunities(memory))
         candidates, report = build_candidates(
             raws,
