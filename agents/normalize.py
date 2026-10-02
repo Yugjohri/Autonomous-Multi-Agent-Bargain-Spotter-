@@ -84,11 +84,11 @@ RESOLVE_HOSTS = {
     "fkrt.it", "fkrt.cc", "fkrt.co", "fktr.in", "dl.flipkart.com",
     "bit.ly", "cutt.ly", "tinyurl.com", "rb.gy", "is.gd", "t.ly", "shorturl.at", "ow.ly",
     "grbn.in", "bitli.in", "bitli.io", "clnk.in", "ekaro.in", "extp.in", "myntr.it",
-    "links.bigtricks.in", "go.bigtricks.in", "wishlink.com", "t2m.io", "inrdeals.com",
+    "links.bigtricks.in", "go.bigtricks.in", "wishlink.com", "t2m.io", "inrdeals.com", "ezlnk.in",
 }
 
 # Query parameters that carry the real destination inside a wrapper link.
-WRAPPER_PARAMS = ("url", "u", "o", "dl", "redirect", "redirect_url", "target", "link", "goto", "r")
+WRAPPER_PARAMS = ("url", "u", "o", "d", "dl", "redirect", "redirect_url", "target", "link", "goto", "r")
 
 TRACKING_PARAMS = {
     "tag", "ref", "ref_", "linkcode", "linkid", "camp", "creative", "creativeasin", "ascsubtag",

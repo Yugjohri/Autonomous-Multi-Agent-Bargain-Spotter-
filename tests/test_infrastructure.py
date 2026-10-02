@@ -98,3 +98,16 @@ def test_observation_log_is_append_only_and_idempotent(tmp_path):
     assert rows[0]["price_inr"] == 264
     assert rows[0]["brand"] == "Mivi" and rows[0]["category"] == "Audio"
     assert rows[0]["is_deal"] is True
+
+
+def test_disk_cache_merges_entries_from_other_processes(tmp_path):
+    from agents.cache import DiskCache
+
+    a = DiskCache("shared", directory=tmp_path)
+    b = DiskCache("shared", directory=tmp_path)
+    a.set("https://amzn.to/1", "https://www.amazon.in/dp/B000000001")
+    a.flush()
+    b.set("https://amzn.to/2", "https://www.amazon.in/dp/B000000002")
+    b.flush()
+    merged = DiskCache("shared", directory=tmp_path)
+    assert merged.get("https://amzn.to/1") and merged.get("https://amzn.to/2")

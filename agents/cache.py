@@ -51,10 +51,27 @@ class DiskCache:
         if not self._dirty:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
+        # Another process (the bot and a script) may have saved entries since we loaded:
+        # merge them in, keeping the newer entry for each key, instead of overwriting.
+        if self.path.exists():
+            try:
+                on_disk = json.loads(self.path.read_text(encoding="utf-8"))
+                for key, entry in on_disk.items():
+                    mine = self._data.get(key)
+                    if mine is None or entry.get("t", 0) > mine.get("t", 0):
+                        self._data[key] = entry
+            except (OSError, ValueError):
+                pass
+        tmp = self.path.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, self.path)
         self._dirty = 0
+
+    def items(self):
+        """(key, value) pairs that have not expired."""
+        now = time.time()
+        with self._lock:
+            return [(k, e["v"]) for k, e in self._data.items() if now - e["t"] <= self.ttl]
 
     def __len__(self) -> int:
         return len(self._data)

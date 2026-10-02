@@ -53,3 +53,37 @@ def test_build_labels_groups_by_product():
     assert labels["flipkart:ITM1"]["p75_price"] == 5000
     assert len(labels) == 2
     assert [l["canonical_id"] for l in build_labels(rows, min_count=2)] == ["amazon_in:A"]
+
+
+def test_labels_use_resolved_short_links():
+    from build_labels import recanonicalize
+
+    rows = [
+        {**row("amazon_in:aaaa1111aaaa1111", 999, "2026-09-01T10:00:00+00:00"), "url": "https://amzn.to/x1"},
+        {**row("amazon_in:bbbb2222bbbb2222", 949, "2026-09-03T10:00:00+00:00", source="telegram:b"), "url": "https://amzn.to/x2"},
+    ]
+    resolved = {"https://amzn.to/x1": "https://www.amazon.in/dp/B0CHX1W1XY?tag=a-21",
+                "https://amzn.to/x2": "https://amazon.in/dp/B0CHX1W1XY"}
+    labels = build_labels(recanonicalize(rows, resolved))
+    assert [(l["canonical_id"], l["observations"], l["sources"]) for l in labels] == [("amazon_in:B0CHX1W1XY", 2, 2)]
+    assert build_labels(rows)[0]["observations"] == 1, "without resolution the two links stay separate"
+
+
+def test_resolve_script_picks_unresolved_priced_links(tmp_path):
+    from resolve_links import urls_to_resolve
+
+    from agents.cache import MemoryCache
+
+    obs = tmp_path / "obs.jsonl"
+    lines = [
+        {"url": "https://amzn.to/a", "is_deal": True},
+        {"url": "https://amzn.to/b", "is_deal": True},
+        {"url": "https://amzn.to/c", "is_deal": False},
+        {"url": "https://www.amazon.in/dp/B0CHX1W1XY", "is_deal": True},
+        {"url": "https://example.com/x", "is_deal": True},
+    ]
+    obs.write_text("\n".join(json.dumps(l) for l in lines), encoding="utf-8")
+    cache = MemoryCache()
+    cache.set("https://amzn.to/b", "https://www.amazon.in/dp/B0CHX1W1XY")
+    pending = urls_to_resolve(obs, RedirectResolver(None, cache))
+    assert dict(pending) == {"amzn.to": {"https://amzn.to/a"}}

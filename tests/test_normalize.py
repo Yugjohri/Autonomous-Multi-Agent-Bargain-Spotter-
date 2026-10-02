@@ -186,3 +186,21 @@ def test_freshness_window():
     assert not is_fresh(now - timedelta(hours=7), 6, now)
     assert is_fresh(None, 6, now)
     assert is_fresh(datetime(2026, 10, 2, 11, 0), 6, now)
+
+
+def test_affiliate_wrappers_seen_in_backfill_are_unwrapped_without_requests():
+    # affinity.net disallows all crawling, but its destination is in the d= parameter.
+    affinity = ("https://ww44.affinity.net/sssweb?cc=%7Bcc%7D&d=https%3A%2F%2Fwww.myntra.com%2F25786106"
+                "&di=%7BclickID%7D&enk=abc")
+    http = FakeHttp(disallowed_hosts={"ww44.affinity.net"})
+    link = normalize_link(affinity, RedirectResolver(http))
+    assert link.store == "myntra" and link.url == "https://www.myntra.com/25786106"
+    assert http.requests == []
+
+
+def test_ezlnk_redirect_through_cashback_wrapper():
+    http = FakeHttp({"https://ezlnk.in/uk3f2": "https://www.paisawapas.com/rl/1670229?slug=flipkartearn"
+                     "&url=https://www.flipkart.com/flipkart/p/itm4b878d76c4d12"})
+    link = normalize_link("https://ezlnk.in/uk3f2", RedirectResolver(http))
+    assert link.canonical_id == "flipkart:ITM4B878D76C4D12"
+    assert [u for _, u in http.requests] == ["https://ezlnk.in/uk3f2"], "the cashback site itself is never requested"

@@ -18,6 +18,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 FIELDS = [
     "canonical_id", "title", "store", "category", "brand", "median_price", "p75_price", "min_price",
     "observations", "sources", "first_seen", "last_seen", "mrp", "highest_price",
@@ -40,6 +42,32 @@ def read_rows(path: Path) -> Iterable[dict]:
                 yield json.loads(line)
             except ValueError:
                 continue
+
+
+def recanonicalize(rows: Iterable[dict], resolved: Dict[str, str]) -> Iterable[dict]:
+    """
+    Swap in the real product id for rows whose short link was resolved later
+    (scripts/resolve_links.py). The observation log itself is never rewritten.
+    """
+    from agents.normalize import canonical_id, detect_store
+
+    for row in rows:
+        target = resolved.get(row.get("url") or "")
+        if target:
+            row = dict(row)
+            row["canonical_id"] = canonical_id(target)
+            store = detect_store(target)
+            if store != "other":
+                row["store"] = store
+        yield row
+
+
+def load_resolved() -> Dict[str, str]:
+    """Short link -> resolved url, from the redirect cache in .cache/."""
+    from agents.cache import DiskCache
+
+    cache = DiskCache("redirects", ttl_seconds=365 * 24 * 3600)
+    return {short: target for short, target in cache.items() if target and target != short}
 
 
 def build_labels(rows: Iterable[dict], min_count: int = 1) -> List[Dict]:
@@ -93,14 +121,19 @@ def main() -> int:
     if not source.exists():
         print(f"{source} does not exist yet. Run the app or scripts/backfill_telegram.py first.")
         return 1
-    labels = build_labels(read_rows(source), args.min_count)
+    resolved = load_resolved()
+    labels = build_labels(recanonicalize(read_rows(source), resolved), args.min_count)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(labels)
-    print(f"Wrote {len(labels)} products to {out}")
+    real = [l for l in labels if l["canonical_id"].startswith(("amazon_in:B", "flipkart:ITM"))]
+    print(f"Wrote {len(labels)} products to {out} (using {len(resolved)} resolved short links)")
+    print(f"  with a real Amazon/Flipkart id: {len(real)}")
+    print(f"  seen 2+ times: {sum(l['observations'] >= 2 for l in labels)} "
+          f"({sum(l['observations'] >= 2 for l in real)} with a real id)")
     return 0
 
 
