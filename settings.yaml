@@ -32,6 +32,9 @@ planning:
   top_n: 3
   # A category that was just alerted is skipped for this long, so alerts are varied.
   category_cooldown_minutes: 60
+  # Deals below this confidence are shown in the UI but do not trigger notifications.
+  # low | medium | high
+  alert_min_confidence: medium
 
 scan:
   # Loot deals expire fast; older posts are ignored.

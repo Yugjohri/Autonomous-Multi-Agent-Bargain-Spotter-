@@ -113,9 +113,10 @@ class EnsembleAgent(Agent):
             market_min_items=int(self.weights.get("market_min_items", 3)),
             sources_count=len(deal.seen_in) or 1,
         )
+        direction = "below" if valuation.discount_pct >= 0 else "above"
         self.log(
             f"Ensemble Agent valued {format_money(deal.price)} deal at {format_money(valuation.estimate)} "
-            f"({valuation.discount_pct:.0f}% below, {valuation.confidence} confidence: {valuation.reason})"
+            f"({abs(valuation.discount_pct):.0f}% {direction}, {valuation.confidence} confidence: {valuation.reason})"
         )
         return valuation
 
