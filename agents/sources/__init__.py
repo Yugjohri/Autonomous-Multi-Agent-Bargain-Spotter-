@@ -56,10 +56,54 @@ def build_telegram_source(config: Dict[str, Any], http: HttpClient) -> Optional[
     )
 
 
+def build_rss_sources(config: Dict[str, Any], http: HttpClient) -> List[DealSource]:
+    from agents.sources.rss import DealsMagnetSource, RSSSource
+
+    sources: List[DealSource] = []
+    cache = DiskCache("feeds", ttl_seconds=24 * 3600) if not http.offline else None
+    for feed in get(config, "rss", []) or []:
+        if not feed.get("enabled", False):
+            continue
+        if feed.get("name") == "legacy_us":
+            # The US DealNews feeds are read by the legacy pipeline (PRICER_MODE=usd_legacy).
+            continue
+        if feed.get("kind") == "dealsmagnet" or feed.get("name") == "dealsmagnet":
+            sources.append(DealsMagnetSource(http, url=feed.get("url", "https://www.dealsmagnet.com/feed"), cache=cache))
+        else:
+            sources.append(
+                RSSSource(feed["name"], feed["url"], http, currency=feed.get("currency", "INR"),
+                          store=feed.get("store", "other"), cache=cache)
+            )
+    return sources
+
+
+def build_aggregator_sources(config: Dict[str, Any], http: HttpClient) -> List[DealSource]:
+    from agents.sources.aggregator import AggregatorSource
+
+    sources: List[DealSource] = []
+    for name, site in (get(config, "aggregators", {}) or {}).items():
+        if not site.get("enabled", False):
+            continue
+        if not site.get("selectors"):
+            logger.warning(f"Aggregator {name} is enabled but has no selectors; skipping")
+            continue
+        sources.append(
+            AggregatorSource(name, site["url"], http, site["selectors"], terms_checked=bool(site.get("terms_checked")))
+        )
+    return sources
+
+
+def build_store_api_sources(config: Dict[str, Any], http: HttpClient) -> List[DealSource]:
+    from agents.sources.store_api import AmazonCreatorsApiSource, FlipkartAffiliateApiSource
+
+    classes = {"amazon_creators": AmazonCreatorsApiSource, "flipkart_affiliate": FlipkartAffiliateApiSource}
+    return [cls() for key, cls in classes.items() if get(config, f"store_apis.{key}.enabled", False)]
+
+
 def build_sources(config: Dict[str, Any], http: HttpClient) -> List[DealSource]:
     """Every enabled source. A source that fails to build is logged and left out."""
     sources: List[DealSource] = []
-    builders = [build_telegram_source]
+    builders = [build_telegram_source, build_rss_sources, build_aggregator_sources, build_store_api_sources]
     for builder in builders:
         try:
             built = builder(config, http)

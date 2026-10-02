@@ -67,7 +67,9 @@ CURRENT_BEFORE = re.compile(r"(current price|deal price|offer price|price now|no
 OFF_AFTER = re.compile(
     r"^\W*(off\b|discount|dropped|drop\b|cashback|cb\b|instant|savings?|bank|coupon|cash ?back|extra off|less)", re.I
 )
-OFF_BEFORE = re.compile(r"(save|saving|savings|discount of|cashback of|coupon of|extra|upto|up to|min|minimum|above)\W*$", re.I)
+OFF_BEFORE = re.compile(
+    r"(save|saving|savings|discount|discount of|cashback of|coupon of|extra|upto|up to|min|minimum|above)\W*$", re.I
+)
 PERCENT_AFTER = re.compile(r"^\s*/?\s*(\d{1,2})\s*%\s*off", re.I)
 
 PRIORITY_MARKERS = {"@", "at", "only", "just", "for", "price", "deal", "loot", "line"}

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic feed with the same structure as https://www.dealsmagnet.com/feed (invented items). -->
+<rss version="2.0">
+  <channel>
+    <title>Example Deals Feed</title>
+    <link>https://www.dealsmagnet.com/</link>
+    <description>Synthetic fixture</description>
+    <item>
+      <title>Example Ceramic Table Lamp with Fabric Shade</title>
+      <link>https://www.dealsmagnet.com/deal/example-ceramic-table-lamp-1aB2cD3e</link>
+      <guid>https://www.dealsmagnet.com/deal/example-ceramic-table-lamp-1aB2cD3e</guid>
+      <category>Offer</category>
+      <category>Myntra Deal</category>
+      <description>65% off.  Buy Example Ceramic Table Lamp with Fabric Shade online in India at an offer price of ₹699.  MRP: ₹1999, Discount: ₹1300. Offer Store: Myntra. Last Updated on 2nd October, 2026.</description>
+    </item>
+    <item>
+      <title>Example Herbal Shampoo | 200ml</title>
+      <link>https://www.dealsmagnet.com/deal/example-herbal-shampoo-200ml-1xY9zW8v</link>
+      <guid>https://www.dealsmagnet.com/deal/example-herbal-shampoo-200ml-1xY9zW8v</guid>
+      <category>Offer</category>
+      <category>Amazon Deal</category>
+      <description>Buy Example Herbal Shampoo | 200ml online in India at an offer price of ₹129. Offer Store: Amazon Last Updated on 2nd October, 2026.</description>
+    </item>
+    <item>
+      <title>Example Festive Sale: Upto 80% off on Kurtas</title>
+      <link>https://www.dealsmagnet.com/deal/example-festive-sale-1qQ2wW3e</link>
+      <guid>https://www.dealsmagnet.com/deal/example-festive-sale-1qQ2wW3e</guid>
+      <category>Offer</category>
+      <description>Upto 80% off on kurtas. Offer Store: Ajio Last Updated on 29th September, 2026.</description>
+    </item>
+  </channel>
+</rss>
