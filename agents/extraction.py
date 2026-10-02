@@ -75,6 +75,21 @@ class Candidate:
         text = EMOJI_RE.sub(" ", text)
         return re.sub(r"\s+", " ", text).strip()[:limit]
 
+    def to_inr_item(self):
+        """This candidate as a products_inr row (self-bootstrapping INR price context)."""
+        from agents.inr_store import InrItem
+
+        return InrItem(
+            document=f"{self.title}\n{self.clean_text(300)}".strip(),
+            price=self.price,
+            canonical_id=self.canonical_id,
+            mrp=self.mrp,
+            store=self.store,
+            category=self.category,
+            seen_at=self.posted_at.isoformat() if self.posted_at else None,
+            source=self.seen_in[0] if self.seen_in else "",
+        )
+
 
 def to_candidate(raw: RawDeal, resolver: Optional[RedirectResolver]) -> Optional[Candidate]:
     """Normalize one priceable post. Returns None if it has no usable link or price."""

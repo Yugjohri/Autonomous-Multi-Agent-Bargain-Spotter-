@@ -93,6 +93,7 @@ Write product_description about the product itself (specs, model, variant), not 
 
             self.openai = OpenAI()
         self.last_raw: List[RawDeal] = []
+        self.last_candidates: List[Candidate] = []
         self.last_report = None
         self.log(f"Scanner Agent is ready ({self.mode} mode, {len(self.sources)} sources)")
 
@@ -117,6 +118,7 @@ Write product_description about the product itself (specs, model, variant), not 
             freshness_hours=float(get(self.settings, "scan.freshness_hours", 6)),
         )
         self.last_report = report
+        self.last_candidates = candidates
         self.resolver.cache.flush()
         self.log(f"Scanner Agent pre-filter: {report.summary()}")
         limit = int(get(self.settings, "scan.max_llm_candidates", 30))

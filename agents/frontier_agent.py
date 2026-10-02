@@ -1,8 +1,7 @@
 import re
-from typing import List, Dict
-from openai import OpenAI
-from sentence_transformers import SentenceTransformer
+from typing import List, Dict, Optional
 from agents.agent import Agent
+from agents.money import format_money
 
 
 class FrontierAgent(Agent):
@@ -11,17 +10,32 @@ class FrontierAgent(Agent):
 
     MODEL = "gpt-4o-mini"
 
-    def __init__(self, collection):
+    INR_PROMPT = (
+        "Estimate the current typical selling price of this product in India, in Indian rupees (INR), "
+        "as sold by major Indian online stores on a normal day (not a flash sale, not the MRP). "
+        "Respond with the number of rupees only, no currency symbol and no explanation."
+    )
+
+    def __init__(self, collection=None, client=None, encoder=None, model: Optional[str] = None):
         """
         Set up this instance by connecting to OpenAI or DeepSeek, to the Chroma Datastore,
         And setting up the vector encoding model
+        :param collection: the USD "products" collection (legacy mode); INR mode passes similars directly
         """
         self.log("Initializing Frontier Agent")
-        self.client = OpenAI()
-        self.MODEL = "gpt-5.1"
+        if client is None:
+            from openai import OpenAI
+
+            client = OpenAI()
+        self.client = client
+        self.MODEL = model or "gpt-5.1"
         self.log("Frontier Agent is setting up with OpenAI")
         self.collection = collection
-        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        if encoder is None and collection is not None:
+            from agents.inr_store import get_encoder
+
+            encoder = get_encoder()
+        self.model = encoder
         self.log("Frontier Agent is ready")
 
     def make_context(self, similars: List[str], prices: List[float]) -> str:
@@ -67,11 +81,40 @@ class FrontierAgent(Agent):
 
     def get_price(self, s) -> float:
         """
-        A utility that plucks a floating point number out of a string
+        A utility that plucks a floating point number out of a string.
+        Handles "$1,299.99" as well as "₹1,29,999", "Rs. 4,499" and "INR 999".
         """
-        s = s.replace("$", "").replace(",", "")
+        s = re.sub(r"(₹|\$|INR|Rs\.?)", "", s or "", flags=re.IGNORECASE).replace(",", "")
         match = re.search(r"[-+]?\d*\.\d+|\d+", s)
         return float(match.group()) if match else 0.0
+
+    def make_inr_context(self, similars) -> str:
+        if not similars:
+            return ""
+        message = "For context, here are similar products recently seen on Indian stores, with their prices in INR:\n\n"
+        for similar in similars:
+            mrp = f" (MRP {format_money(similar.mrp)})" if similar.mrp else ""
+            message += f"{similar.document}\nPrice: {format_money(similar.price)}{mrp}\n\n"
+        return message
+
+    def estimate_inr(self, description: str, similars) -> Optional[float]:
+        """
+        Estimate the typical Indian selling price in INR, using similar INR items as context.
+        Returns None when the model gives no usable number.
+        """
+        message = f"{self.INR_PROMPT}\n\nProduct:\n{description}\n\n{self.make_inr_context(similars)}"
+        self.log(f"Frontier Agent is asking {self.MODEL} for an INR estimate with {len(similars)} similar items")
+        response = self.client.chat.completions.create(
+            model=self.MODEL,
+            messages=[{"role": "user", "content": message}],
+            seed=42,
+            reasoning_effort="none",
+        )
+        result = self.get_price(response.choices[0].message.content)
+        if result <= 0:
+            return None
+        self.log(f"Frontier Agent completed - estimating {format_money(result)}")
+        return result
 
     def price(self, description: str) -> float:
         """

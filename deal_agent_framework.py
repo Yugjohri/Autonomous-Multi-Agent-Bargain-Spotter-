@@ -63,8 +63,13 @@ class DealAgentFramework:
             self.log("Agent Framework is ready")
 
     def read_memory(self) -> List[Opportunity]:
-        if os.path.exists(self.MEMORY_FILENAME):
-            with open(self.MEMORY_FILENAME, "r", encoding="utf-8") as file:
+        return self.load_memory_file()
+
+    @classmethod
+    def load_memory_file(cls) -> List[Opportunity]:
+        """Saved opportunities, with records from before currencies existed migrated to USD."""
+        if os.path.exists(cls.MEMORY_FILENAME):
+            with open(cls.MEMORY_FILENAME, "r", encoding="utf-8") as file:
                 data = json.load(file)
             return load_opportunities(data)
         return []
