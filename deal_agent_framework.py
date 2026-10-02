@@ -6,7 +6,7 @@ from typing import List
 from dotenv import load_dotenv
 import chromadb
 from agents.planning_agent import PlanningAgent
-from agents.deals import Opportunity
+from agents.deals import Opportunity, load_opportunities
 from sklearn.manifold import TSNE
 import numpy as np
 
@@ -64,16 +64,15 @@ class DealAgentFramework:
 
     def read_memory(self) -> List[Opportunity]:
         if os.path.exists(self.MEMORY_FILENAME):
-            with open(self.MEMORY_FILENAME, "r") as file:
+            with open(self.MEMORY_FILENAME, "r", encoding="utf-8") as file:
                 data = json.load(file)
-            opportunities = [Opportunity(**item) for item in data]
-            return opportunities
+            return load_opportunities(data)
         return []
 
     def write_memory(self) -> None:
-        data = [opportunity.model_dump() for opportunity in self.memory]
-        with open(self.MEMORY_FILENAME, "w") as file:
-            json.dump(data, file, indent=2)
+        data = [opportunity.model_dump(mode="json") for opportunity in self.memory]
+        with open(self.MEMORY_FILENAME, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2, ensure_ascii=False)
 
     @classmethod
     def reset_memory(cls) -> None:

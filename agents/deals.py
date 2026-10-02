@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Self
+from datetime import datetime
+from pydantic import BaseModel, Field, model_validator
+from typing import Any, List, Dict, Optional, Self
 from bs4 import BeautifulSoup
 import re
 import feedparser
@@ -101,8 +102,39 @@ class ScrapedDeal:
 
 class Deal(BaseModel):
     """
-    A class to Represent a Deal with a summary description
+    A deal with a summary description and the metadata needed to dedupe, value and display it.
+    The price is what the buyer actually pays, in the deal's currency.
     """
+
+    product_description: str
+    price: float
+    url: str
+    currency: str = "INR"
+    mrp: Optional[float] = None
+    store: str = "other"
+    source: str = ""
+    posted_at: Optional[datetime] = None
+    canonical_id: str = ""
+    coupon_note: Optional[str] = None
+    title: str = ""
+    category: str = "Other"
+    brand: Optional[str] = None
+    # Every source that posted this deal; several channels posting it is a quality signal.
+    seen_in: List[str] = Field(default_factory=list)
+    # Highest past price, when a source publishes price history (e.g. "Highest Price: ₹X").
+    highest_price: Optional[float] = None
+
+
+class DealSelection(BaseModel):
+    """
+    A class to Represent a list of Deals
+    """
+
+    deals: List[Deal]
+
+
+class LegacyDealPick(BaseModel):
+    """Structured output schema the legacy US scanner asks the LLM to fill."""
 
     product_description: str = Field(
         description="Your clearly expressed summary of the product in 3-4 sentences. Details of the item are much more important than why it's a good deal. Avoid mentioning discounts and coupons; focus on the item itself. There should be a short paragraph of text for each item you choose."
@@ -112,13 +144,18 @@ class Deal(BaseModel):
     )
     url: str = Field(description="The URL of the deal, as provided in the input")
 
+    def to_deal(self) -> Deal:
+        return Deal(
+            product_description=self.product_description,
+            price=self.price,
+            url=self.url,
+            currency="USD",
+            source="rss:dealnews",
+        )
 
-class DealSelection(BaseModel):
-    """
-    A class to Represent a list of Deals
-    """
 
-    deals: List[Deal] = Field(
+class LegacyDealSelection(BaseModel):
+    deals: List[LegacyDealPick] = Field(
         description="Your selection of the 5 deals that have the most detailed, high quality description and the most clear price. You should be confident that the price reflects the deal, that it is a good deal, with a clear description"
     )
 
@@ -132,3 +169,38 @@ class Opportunity(BaseModel):
     deal: Deal
     estimate: float
     discount: float
+    currency: Optional[str] = None
+    discount_pct: Optional[float] = None
+    confidence: Optional[str] = None
+    confidence_reason: Optional[str] = None
+    found_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def _currency_from_deal(self) -> "Opportunity":
+        if self.currency is None:
+            self.currency = self.deal.currency
+        return self
+
+
+LEGACY_CURRENCY = "USD"
+
+
+def migrate_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Upgrade a memory.json record written before deals carried a currency.
+    Records without a currency come from the US pipeline, so they default to USD.
+    """
+    record = dict(record)
+    deal = dict(record.get("deal", {}))
+    deal.setdefault("currency", record.get("currency") or LEGACY_CURRENCY)
+    if "dealnews.com" in deal.get("url", ""):
+        deal.setdefault("source", "rss:dealnews")
+        deal.setdefault("store", "other")
+    record["deal"] = deal
+    record.setdefault("currency", deal["currency"])
+    return record
+
+
+def load_opportunities(records: List[Dict[str, Any]]) -> List[Opportunity]:
+    """Build Opportunities from raw memory records, migrating old formats on the way."""
+    return [Opportunity(**migrate_record(record)) for record in records]

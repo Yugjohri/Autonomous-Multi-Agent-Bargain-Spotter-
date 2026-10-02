@@ -1,6 +1,6 @@
 from typing import Optional, List
 from openai import OpenAI
-from agents.deals import ScrapedDeal, DealSelection
+from agents.deals import ScrapedDeal, DealSelection, LegacyDealSelection
 from agents.agent import Agent
 
 
@@ -73,11 +73,11 @@ class ScannerAgent(Agent):
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                response_format=DealSelection,
+                response_format=LegacyDealSelection,
                 reasoning_effort="minimal",
             )
-            result = result.choices[0].message.parsed
-            result.deals = [deal for deal in result.deals if deal.price > 0]
+            picks = result.choices[0].message.parsed
+            result = DealSelection(deals=[pick.to_deal() for pick in picks.deals if pick.price > 0])
             self.log(
                 f"Scanner Agent received {len(result.deals)} selected deals with price>0 from OpenAI"
             )
@@ -112,4 +112,6 @@ class ScannerAgent(Agent):
                 },
             ]
         }
+        for deal in results["deals"]:
+            deal["currency"] = "USD"
         return DealSelection(**results)
