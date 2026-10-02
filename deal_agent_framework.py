@@ -259,4 +259,11 @@ class DealAgentFramework:
 
 
 if __name__ == "__main__":
-    DealAgentFramework().run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run one deal-hunting cycle without the UI")
+    parser.add_argument("--fixture", action="store_true", help="Replay saved posts offline; no network, no notifications")
+    parser.add_argument("--dry-run", action="store_true", help="Run the live pipeline but send no notifications")
+    args = parser.parse_args()
+    framework = DealAgentFramework(fixture=args.fixture, dry_run=args.dry_run)
+    framework.run()

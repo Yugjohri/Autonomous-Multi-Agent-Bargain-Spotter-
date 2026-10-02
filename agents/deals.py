@@ -6,9 +6,13 @@ from bs4 import BeautifulSoup
 import re
 import feedparser
 from tqdm import tqdm
+import logging
 import requests
 import time
 
+logger = logging.getLogger(__name__)
+
+# Defaults for the legacy US pipeline; sources.yaml (rss: legacy_us) overrides them.
 feeds = [
     "https://www.dealnews.com/c142/Electronics/?rss=1",
     "https://www.dealnews.com/c39/Computers/?rss=1",
@@ -48,22 +52,33 @@ class ScrapedDeal:
     details: str
     features: str
 
-    def __init__(self, entry: Dict[str, str]):
+    TIMEOUT = 15
+
+    def __init__(self, entry: Dict[str, str], session: Optional[requests.Session] = None):
         """
-        Populate this instance based on the provided dict
+        Populate this instance based on the provided dict.
+        The deal page is optional context: if it cannot be fetched or has no
+        content section, the RSS summary is used instead of failing.
         """
         self.title = entry["title"]
-        self.summary = extract(entry["summary"])
+        self.summary = extract(entry.get("summary", ""))
         self.url = entry["links"][0]["href"]
-        stuff = requests.get(self.url).content
-        soup = BeautifulSoup(stuff, "html.parser")
-        content = soup.find("div", class_="content-section").get_text()
-        content = content.replace("\nmore", "").replace("\n", " ")
-        if "Features" in content:
-            self.details, self.features = content.split("Features", 1)
-        else:
-            self.details = content
-            self.features = ""
+        self.details, self.features = self.summary, ""
+        try:
+            response = (session or requests).get(self.url, timeout=self.TIMEOUT)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, "html.parser")
+            section = soup.find("div", class_="content-section")
+            if section is not None:
+                content = section.get_text().replace("\nmore", "").replace("\n", " ")
+                if "Features" in content:
+                    self.details, self.features = content.split("Features", 1)
+                else:
+                    self.details = content
+            else:
+                logger.info(f"No content section on {self.url}; using the RSS summary")
+        except requests.RequestException as exc:
+            logger.warning(f"Could not fetch deal page {self.url} ({type(exc).__name__}); using the RSS summary")
         self.truncate()
 
     def truncate(self):
@@ -87,18 +102,45 @@ class ScrapedDeal:
         return f"Title: {self.title}\nDetails: {self.details.strip()}\nFeatures: {self.features.strip()}\nURL: {self.url}"
 
     @classmethod
-    def fetch(cls, show_progress: bool = False) -> List[Self]:
+    def fetch(cls, show_progress: bool = False, urls: Optional[List[str]] = None, per_feed: int = 10) -> List[Self]:
         """
-        Retrieve all deals from the selected RSS feeds
+        Retrieve all deals from the legacy US RSS feeds (sources.yaml, rss: legacy_us).
+        A failing feed or item is logged and skipped.
         """
+        urls = urls or legacy_feed_urls()
+        session = requests.Session()
+        session.headers["User-Agent"] = "BargainSpotter/0.2"
         deals = []
-        feed_iter = tqdm(feeds) if show_progress else feeds
+        feed_iter = tqdm(urls) if show_progress else urls
         for feed_url in feed_iter:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:10]:
-                deals.append(cls(entry))
+            try:
+                response = session.get(feed_url, timeout=cls.TIMEOUT)
+                response.raise_for_status()
+                feed = feedparser.parse(response.content)
+            except requests.RequestException as exc:
+                logger.warning(f"Legacy feed {feed_url} failed ({type(exc).__name__}); skipping it")
+                continue
+            for entry in feed.entries[:per_feed]:
+                try:
+                    deals.append(cls(entry, session))
+                except (KeyError, IndexError) as exc:
+                    logger.warning(f"Skipping a malformed item in {feed_url} ({exc})")
                 time.sleep(0.05)
         return deals
+
+
+def legacy_feed_urls() -> List[str]:
+    """The legacy_us feed list from sources.yaml, or the built-in DealNews defaults."""
+    try:
+        from agents.config import load_sources_config
+
+        for feed in load_sources_config().get("rss", []) or []:
+            if feed.get("name") == "legacy_us" and feed.get("url"):
+                url = feed["url"]
+                return [url] if isinstance(url, str) else list(url)
+    except Exception as exc:  # noqa: BLE001 - fall back to the defaults
+        logger.warning(f"Could not read legacy feeds from sources.yaml ({exc})")
+    return list(feeds)
 
 
 class Deal(BaseModel):

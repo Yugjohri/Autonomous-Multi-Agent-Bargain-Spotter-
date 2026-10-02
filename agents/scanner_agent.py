@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, wait
 from typing import List, Optional
 
 from agents.agent import Agent
@@ -95,6 +96,8 @@ Write product_description about the product itself (specs, model, variant), not 
             from openai import OpenAI
 
             self.openai = OpenAI()
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._running: dict = {}
         self.last_raw: List[RawDeal] = []
         self.last_candidates: List[Candidate] = []
         self.last_report = None
@@ -103,11 +106,31 @@ Write product_description about the product itself (specs, model, variant), not 
     # ------------------------------------------------------------------ INR
 
     def fetch_raw(self) -> List[RawDeal]:
-        """All posts from every source. Each source isolates its own failures."""
+        """
+        All posts from every source, fetched in parallel within scan.time_budget_seconds.
+        Each source isolates its own failures; a source that overruns the budget is skipped
+        for this scan (and not started again while its previous fetch is still running).
+        """
         limit = 60
-        raws: List[RawDeal] = []
+        budget = float(get(self.settings, "scan.time_budget_seconds", 120))
+        if self._executor is None:
+            workers = int(get(self.settings, "scan.source_workers", 6))
+            self._executor = ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="source")
+        futures = {}
         for source in self.sources:
-            raws.extend(source.fetch(limit))
+            previous = self._running.get(source.name)
+            if previous is not None and not previous.done():
+                self.log(f"Scanner Agent skips {source.name}: its previous fetch is still running")
+                continue
+            future = self._executor.submit(source.fetch, limit)
+            self._running[source.name] = future
+            futures[future] = source
+        done, late = wait(futures, timeout=budget)
+        raws: List[RawDeal] = []
+        for future in done:
+            raws.extend(future.result())
+        for future in late:
+            self.log(f"Scanner Agent skipped {futures[future].name}: no answer within the {budget:.0f}s budget")
         return raws
 
     def log_observations(self, raws: List[RawDeal]) -> None:
