@@ -11,7 +11,7 @@ INR "products_inr" collection (PRICER_MODE=inr), from data we collected ourselve
 
 --from-raw reads local CSV files of Indian product listings (Amazon.in, Flipkart, ...).
 Columns are detected by name (title / price / MRP / URL / ASIN / timestamp), prices may
-be written as "₹1,615" or 1615, and rows marked with a currency other than INR are
+be written with the rupee sign and commas or as plain numbers, and rows marked with a currency other than INR are
 skipped. products_vectorstore/ is not tracked in git, so this builds it locally.
 """
 
@@ -202,7 +202,11 @@ def populate_inr(args) -> None:
     if args.from_observations:
         batches.append(("observations", list(items_from_observations(Path(args.observations)))))
     if args.from_raw:
+        excluded = set(args.exclude or [])
         for path in sorted(Path(args.from_raw).rglob("*.csv")):
+            if excluded & set(path.relative_to(args.from_raw).parts):
+                logging.info(f"{path}: skipped (--exclude)")
+                continue
             batches.append((str(path), list(items_from_csv(path))))
 
     for name, items in batches:
@@ -224,6 +228,10 @@ def main():
     parser.add_argument("--from-observations", action="store_true", help="INR: data/observations.jsonl")
     parser.add_argument("--observations", default="data/observations.jsonl")
     parser.add_argument("--from-raw", metavar="DIR", help="INR: folder of CSV product listings")
+    parser.add_argument(
+        "--exclude", nargs="*", metavar="FOLDER",
+        help="INR --from-raw: subfolders to skip, e.g. a held-out test set (amazon_2026)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")

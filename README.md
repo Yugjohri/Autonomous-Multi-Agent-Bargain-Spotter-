@@ -83,7 +83,7 @@ Without this step the app still runs, reading username channels through the publ
 seed it from data you have:
 
 ```bash
-uv run python populate_vectorstore.py --currency INR --from-raw data/raw    # CSVs of Indian listings
+uv run python populate_vectorstore.py --currency INR --from-raw data/raw --exclude amazon_2026   # keep the test set out
 uv run python populate_vectorstore.py --currency INR --from-observations   # after a backfill
 uv run python populate_vectorstore.py --currency INR --from-memory
 ```
