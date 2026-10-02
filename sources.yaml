@@ -1,0 +1,79 @@
+# Deal sources. This file is committed and holds example values only.
+# Put your real channel list in sources.local.yaml (gitignored); it is merged on top
+# of this file, and lists in it replace the lists here.
+
+http:
+  user_agent: "BargainSpotter/0.2 (+https://github.com/Yugjohri/Autonomous-Multi-Agent-Bargain-Spotter-)"
+  timeout_seconds: 15
+  retries: 2
+  backoff_seconds: 1.5
+  # Minimum gap between two requests to the same host.
+  min_interval_per_host_seconds: 1.0
+  respect_robots_txt: true
+
+telegram:
+  enabled: true
+  # true = only read the public t.me/s/ web previews, never log in.
+  # Use this for any hosted or public demo: a personal account must never run on a public server.
+  public_only: false
+  session_path: secrets/bargain_spotter.session
+  # Push new posts through the pipeline within seconds (MTProto only).
+  live: true
+  # Posts read per channel on each scan.
+  fetch_limit: 20
+  channel_delay_seconds: 1.5
+  # FloodWait longer than this skips the channel for the current scan instead of sleeping.
+  max_flood_wait_seconds: 300
+  # A channel can be given by username, numeric id (-100...) or invite link (t.me/+...).
+  # Only username channels work with the public preview; the others are MTProto-only.
+  # trust (default 1.0) weights how much a channel's posts count as a quality signal.
+  channels:
+    - username: example_deals_channel   # TODO: replace in sources.local.yaml
+      enabled: false
+      trust: 1.0
+    - id: -1000000000000                # TODO: numeric id example (MTProto only)
+      name: example_private_channel
+      enabled: false
+    - invite: https://t.me/+EXAMPLEINVITE  # TODO: invite link example (MTProto only, join it in the app first)
+      name: example_invite_channel
+      enabled: false
+
+# Generic RSS / Atom feeds.
+rss:
+  - name: dealsmagnet
+    url: https://www.dealsmagnet.com/feed
+    enabled: true
+    store: other
+    currency: INR
+    # Offer price and MRP are in the item description; links under /buy, /RedirectTo,
+    # /RD/ and /RDT/ are disallowed by robots.txt and are never followed.
+    limit: 60
+  - name: legacy_us
+    # The original US DealNews feeds, kept for PRICER_MODE=usd_legacy.
+    url:
+      - https://www.dealnews.com/c142/Electronics/?rss=1
+      - https://www.dealnews.com/c39/Computers/?rss=1
+      - https://www.dealnews.com/f1912/Smart-Home/?rss=1
+    enabled: false
+    currency: USD
+    limit: 10
+
+# HTML listing pages of Indian deal communities. See docs/sources.md before enabling.
+aggregators:
+  desidime:
+    enabled: false
+    url: https://www.desidime.com/new
+    limit: 40
+  buyhatke:
+    # Disabled: see docs/sources.md for the robots.txt and terms check.
+    enabled: false
+
+# Official store APIs. Off: both need an approved affiliate account (see docs/sources.md).
+store_apis:
+  amazon_creators:
+    enabled: false
+  flipkart_affiliate:
+    enabled: false
+
+# Extra shortener hosts to resolve, on top of the built-in list in agents/normalize.py.
+resolve_hosts: []

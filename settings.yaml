@@ -1,0 +1,52 @@
+# Pricing, thresholds and scan limits. Committed; contains no secrets.
+# Environment variables override the matching keys: PRICER_MODE, MIN_DISCOUNT_INR,
+# MIN_DISCOUNT_PCT, MIN_DISCOUNT_USD, FRESHNESS_HOURS, TOP_N_PER_RUN, SCAN_TIME_BUDGET_SECONDS.
+
+# inr        : Indian sources, prices in rupees, valued by the Frontier Agent (INR prompt,
+#              INR RAG) plus the price-signal module. No currency conversion anywhere.
+# usd_legacy : the original US pipeline (DealNews, three USD-trained models).
+pricer_mode: inr
+
+ensemble:
+  inr:
+    # Weights of the valuation signals; missing signals are dropped and the rest renormalized.
+    frontier: 0.6        # GPT estimate of the typical Indian selling price, with INR RAG context
+    market: 0.3          # median price of similar items in the products_inr store
+    mrp: 0.1             # MRP scaled by mrp_factor (MRPs in India are often inflated)
+    mrp_factor: 0.75
+    # Similar items must be at least this close (cosine distance) to count as market evidence.
+    market_max_distance: 0.45
+    market_min_items: 3
+  usd_legacy:
+    frontier: 0.8
+    specialist: 0.1
+    neural_network: 0.1
+
+thresholds:
+  min_discount_inr: 500
+  min_discount_pct: 20
+  min_discount_usd: 50
+
+planning:
+  # Deals surfaced per run, sorted by discount percent and then absolute discount.
+  top_n: 3
+  # A category that was just alerted is skipped for this long, so alerts are varied.
+  category_cooldown_minutes: 60
+
+scan:
+  # Loot deals expire fast; older posts are ignored.
+  freshness_hours: 6
+  # At most this many candidates reach the LLM per scan.
+  max_llm_candidates: 30
+  picks_per_scan: 5
+  # Whole scan (all sources in parallel) must finish inside this budget.
+  time_budget_seconds: 120
+  source_workers: 6
+
+models:
+  scanner: gpt-5-mini
+  frontier: gpt-5.1
+
+notifications:
+  pushover: true
+  telegram_bot: true
