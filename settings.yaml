@@ -46,6 +46,11 @@ scan:
 models:
   scanner: gpt-5-mini
   frontier: gpt-5.1
+  # USD per million tokens (input, output), only used to log an approximate cost per call.
+  # Check https://openai.com/api/pricing/ and update if they change.
+  prices_per_million:
+    gpt-5-mini: [0.25, 2.00]
+    gpt-5.1: [1.25, 10.00]
 
 notifications:
   pushover: true

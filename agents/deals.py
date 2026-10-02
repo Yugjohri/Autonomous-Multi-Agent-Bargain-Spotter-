@@ -1,6 +1,7 @@
 from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
-from typing import Any, List, Dict, Optional, Self
+from typing import Any, List, Dict, Literal, Optional, Self
+from agents.categorize import CATEGORIES
 from bs4 import BeautifulSoup
 import re
 import feedparser
@@ -131,6 +132,38 @@ class DealSelection(BaseModel):
     """
 
     deals: List[Deal]
+
+
+CategoryName = Literal[tuple(CATEGORIES)]
+
+
+class InrPick(BaseModel):
+    """Structured output the INR scanner asks the LLM to fill for each chosen candidate."""
+
+    candidate_id: int = Field(description="The [id] number of the chosen candidate, exactly as given")
+    title: str = Field(description="Short product name with brand, model and variant, under 80 characters")
+    product_description: str = Field(
+        description="2 to 4 sentences about the product itself: what it is, key specs, model and variant. "
+        "Do not describe the deal, discounts or coupons here."
+    )
+    price: float = Field(
+        description="The amount in Indian rupees (INR) that any buyer actually pays for one unit. "
+        "If the post says '₹X off' or 'save ₹X', that is a discount, not the price. "
+        "Include coupons that anyone can apply, but do not subtract conditional offers such as "
+        "specific bank cards, exchange bonuses or cashback."
+    )
+    coupon_note: Optional[str] = Field(
+        description="Conditions and extra savings in a few words: coupon to apply, bank card offer, "
+        "exchange or cashback, effective price after them if stated. Null if there are none."
+    )
+    category: CategoryName = Field(description="The best matching category")
+    brand: Optional[str] = Field(description="Brand name, or null if unknown")
+
+
+class InrSelection(BaseModel):
+    picks: List[InrPick] = Field(
+        description="The best deals among the candidates: clear single products with a clear payable price"
+    )
 
 
 class LegacyDealPick(BaseModel):
