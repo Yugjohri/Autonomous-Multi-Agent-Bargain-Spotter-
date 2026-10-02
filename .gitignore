@@ -33,3 +33,6 @@ data/
 # Caches
 .cache/
 .pytest_cache/
+
+# Deals surfaced by your own runs (personal history)
+memory.json
