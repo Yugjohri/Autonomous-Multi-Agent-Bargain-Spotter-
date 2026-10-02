@@ -70,10 +70,22 @@ def load_resolved() -> Dict[str, str]:
     return {short: target for short, target in cache.items() if target and target != short}
 
 
-def build_labels(rows: Iterable[dict], min_count: int = 1) -> List[Dict]:
+MIN_PRICE = 30.0  # below this a "price" is a booking amount, token deal or misparse
+
+
+def build_labels(rows: Iterable[dict], min_count: int = 1, max_spread: float = 3.0, report: dict = None) -> List[Dict]:
+    """
+    One row per product. Groups whose 75th percentile price is more than `max_spread` times
+    their lowest price are dropped: they mix a product with a booking amount, a category page
+    or a misread number (e.g. "Bajaj Pulsar" at Rs 200). Counts go into `report` if given.
+    """
+    report = report if report is not None else {}
     groups: Dict[str, List[dict]] = defaultdict(list)
     for row in rows:
         if not row.get("is_deal") or not row.get("canonical_id") or not row.get("price_inr"):
+            continue
+        if float(row["price_inr"]) < MIN_PRICE:
+            report["below_min_price"] = report.get("below_min_price", 0) + 1
             continue
         groups[row["canonical_id"]].append(row)
 
@@ -83,6 +95,9 @@ def build_labels(rows: Iterable[dict], min_count: int = 1) -> List[Dict]:
             continue
         items.sort(key=lambda r: r.get("posted_at") or r.get("seen_at") or "")
         prices = sorted(float(r["price_inr"]) for r in items)
+        if max_spread and p75(prices) > max_spread * prices[0]:
+            report["inconsistent_groups"] = report.get("inconsistent_groups", 0) + 1
+            continue
         dates = [r.get("posted_at") or r.get("seen_at") for r in items if r.get("posted_at") or r.get("seen_at")]
         titles = Counter(r.get("title") for r in items if r.get("title"))
         mrps = [r["mrp_inr"] for r in items if r.get("mrp_inr")]
@@ -115,6 +130,8 @@ def main() -> int:
     parser.add_argument("--in", dest="source", default="data/observations.jsonl")
     parser.add_argument("--out", default="data/labels.csv")
     parser.add_argument("--min-count", type=int, default=1, help="Skip products seen fewer times")
+    parser.add_argument("--max-spread", type=float, default=3.0,
+                        help="Drop products whose p75 price exceeds this multiple of their lowest price (0 = keep all)")
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -122,7 +139,8 @@ def main() -> int:
         print(f"{source} does not exist yet. Run the app or scripts/backfill_telegram.py first.")
         return 1
     resolved = load_resolved()
-    labels = build_labels(recanonicalize(read_rows(source), resolved), args.min_count)
+    report: dict = {}
+    labels = build_labels(recanonicalize(read_rows(source), resolved), args.min_count, args.max_spread, report)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as file:
@@ -134,6 +152,8 @@ def main() -> int:
     print(f"  with a real Amazon/Flipkart id: {len(real)}")
     print(f"  seen 2+ times: {sum(l['observations'] >= 2 for l in labels)} "
           f"({sum(l['observations'] >= 2 for l in real)} with a real id)")
+    print(f"  dropped: {report.get('below_min_price', 0)} posts under Rs {MIN_PRICE:.0f}, "
+          f"{report.get('inconsistent_groups', 0)} products with inconsistent prices (--max-spread {args.max_spread:g})")
     return 0
 
 

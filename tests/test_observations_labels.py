@@ -87,3 +87,19 @@ def test_resolve_script_picks_unresolved_priced_links(tmp_path):
     cache.set("https://amzn.to/b", "https://www.amazon.in/dp/B0CHX1W1XY")
     pending = urls_to_resolve(obs, RedirectResolver(None, cache))
     assert dict(pending) == {"amzn.to": {"https://amzn.to/a"}}
+
+
+def test_inconsistent_and_token_prices_are_dropped():
+    rows = [
+        row("amazon_in:B0D842QBMB", 200, "2026-09-01T10:00:00+00:00"),  # booking amount
+        row("amazon_in:B0D842QBMB", 169798, "2026-09-02T10:00:00+00:00"),
+        row("amazon_in:B0D842QBMB", 169798, "2026-09-03T10:00:00+00:00"),
+        row("flipkart:ITM8EB4D0780889A", 12, "2026-09-01T10:00:00+00:00"),  # token price
+        row("amazon_in:B08FXNP7CH", 595, "2026-09-01T10:00:00+00:00"),
+        row("amazon_in:B08FXNP7CH", 649, "2026-09-05T10:00:00+00:00"),
+    ]
+    report = {}
+    labels = build_labels(rows, report=report)
+    assert [l["canonical_id"] for l in labels] == ["amazon_in:B08FXNP7CH"]
+    assert report == {"below_min_price": 1, "inconsistent_groups": 1}
+    assert len(build_labels(rows, max_spread=0)) == 2, "--max-spread 0 keeps everything priced"
