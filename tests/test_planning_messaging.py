@@ -116,32 +116,32 @@ def test_alert_format_legacy_usd_unchanged():
     assert format_alert(o).startswith("Deal Alert! Price=$350.00, Estimate=$773.00, Discount=$423.00")
 
 
-def test_dry_run_sends_nothing(monkeypatch):
+def test_dry_run_sends_nothing(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr("agents.messaging_agent.requests.post", lambda *a, **k: calls.append(a))
     monkeypatch.setenv("PUSHOVER_USER", "u")
     monkeypatch.setenv("PUSHOVER_TOKEN", "t")
-    agent = MessagingAgent(dry_run=True)
+    agent = MessagingAgent(dry_run=True, sent_path=tmp_path / 'sent.json')
     agent.alert(opp(1000, 2000))
     assert calls == [] and len(agent.sent) == 1
 
 
-def test_sends_to_pushover_and_telegram_bot(monkeypatch):
+def test_sends_to_pushover_and_telegram_bot(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr("agents.messaging_agent.requests.post", lambda url, data=None, timeout=None: calls.append((url, data)))
     for key, value in {"PUSHOVER_USER": "u", "PUSHOVER_TOKEN": "t", "TG_BOT_TOKEN": "123:abc", "TG_CHAT_ID": "42"}.items():
         monkeypatch.setenv(key, value)
-    MessagingAgent().alert(opp(1000, 2000))
+    MessagingAgent(sent_path=tmp_path / 'sent.json').alert(opp(1000, 2000))
     assert calls[0][0] == "https://api.pushover.net/1/messages.json"
     assert calls[1][0] == "https://api.telegram.org/bot123:abc/sendMessage" and calls[1][1]["chat_id"] == "42"
 
 
-def test_unconfigured_targets_are_skipped(monkeypatch):
+def test_unconfigured_targets_are_skipped(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr("agents.messaging_agent.requests.post", lambda *a, **k: calls.append(a))
     for key in ("PUSHOVER_USER", "PUSHOVER_TOKEN", "TG_BOT_TOKEN", "TG_CHAT_ID"):
         monkeypatch.delenv(key, raising=False)
-    MessagingAgent().alert(opp(1000, 2000))
+    MessagingAgent(sent_path=tmp_path / 'sent.json').alert(opp(1000, 2000))
     assert calls == []
 
 
@@ -210,3 +210,37 @@ def test_plot_colors_have_other_bucket():
     assert color_for(None) == OTHER_COLOR
     assert color_for("Electronics", mode="usd_legacy") == "orange"
     assert color_for("Mobiles", mode="usd_legacy") == OTHER_COLOR
+
+
+def test_same_deal_is_not_alerted_twice(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr("agents.messaging_agent.requests.post", lambda url, data=None, timeout=None: calls.append(url))
+    monkeypatch.setenv("PUSHOVER_USER", "u")
+    monkeypatch.setenv("PUSHOVER_TOKEN", "t")
+    for key in ("TG_BOT_TOKEN", "TG_CHAT_ID"):
+        monkeypatch.delenv(key, raising=False)
+    sent = tmp_path / "sent.json"
+    deal = opp(1000, 2000)
+    assert MessagingAgent(sent_path=sent).alert(deal) is True
+    # A burst of repeats (e.g. UI events) and a restarted bot both stay silent.
+    assert [MessagingAgent(sent_path=sent).alert(deal) for _ in range(20)] == [False] * 20
+    assert len(calls) == 1
+    cheaper = opp(900, 2000)
+    cheaper.deal.url = deal.deal.url
+    assert MessagingAgent(sent_path=sent).alert(cheaper) is True, "a price drop is a new alert"
+    assert MessagingAgent(sent_path=sent).alert(deal, force=True) is True, "the UI button can resend"
+
+
+def test_dry_run_does_not_silence_later_live_alerts(tmp_path):
+    sent = tmp_path / "sent.json"
+    dry = MessagingAgent(dry_run=True, sent_path=sent)
+    deal = opp(1000, 2000)
+    assert dry.alert(deal) is True and dry.alert(deal) is False
+    assert not sent.exists()
+
+
+def test_ui_hides_other_currency():
+    from price_is_right import table_for
+
+    rows = table_for([opp(350, 773, currency="USD", title="old"), opp(1000, 2000, title="new")], currency="INR")
+    assert [r[0] for r in rows] == ["new"]

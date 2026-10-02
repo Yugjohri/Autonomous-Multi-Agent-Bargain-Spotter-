@@ -1,5 +1,8 @@
+import json
 import os
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional
 
 import requests
@@ -59,7 +62,8 @@ class MessagingAgent(Agent):
     color = Agent.WHITE
     MODEL = "claude-sonnet-4-5"
 
-    def __init__(self, settings: Optional[dict] = None, dry_run: bool = False):
+    def __init__(self, settings: Optional[dict] = None, dry_run: bool = False,
+                 sent_path: Path = Path("data/state/alerts_sent.json")):
         """
         Set up push notifications via Pushover and, optionally, a Telegram bot.
         A target is used only if its credentials are set. With dry_run nothing is sent.
@@ -67,6 +71,8 @@ class MessagingAgent(Agent):
         self.log("Messaging Agent is initializing")
         self.settings = settings or {}
         self.dry_run = dry_run
+        self.sent_path = Path(sent_path)
+        self._dry_sent: dict = {}
         self.pushover_user = os.getenv("PUSHOVER_USER")
         self.pushover_token = os.getenv("PUSHOVER_TOKEN")
         self.tg_bot_token = os.getenv("TG_BOT_TOKEN")
@@ -117,12 +123,49 @@ class MessagingAgent(Agent):
         if not any(targets.values()):
             self.log("Messaging Agent has no notification target configured; logged only")
 
-    def alert(self, opportunity: Opportunity):
+    @staticmethod
+    def alert_key(opportunity: Opportunity) -> str:
+        deal = opportunity.deal
+        return f"{deal.canonical_id or deal.url}@{round(deal.price)}"
+
+    def _load_sent(self) -> dict:
+        if self.dry_run:
+            # A dry run must not silence the real alerts of a later live run.
+            return self._dry_sent
+        try:
+            return json.loads(self.sent_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def already_alerted(self, opportunity: Opportunity) -> bool:
+        hours = float(get(self.settings, "notifications.repeat_after_hours", 12))
+        sent_at = self._load_sent().get(self.alert_key(opportunity))
+        return sent_at is not None and time.time() - sent_at < hours * 3600
+
+    def _remember(self, opportunity: Opportunity) -> None:
+        sent = self._load_sent()
+        cutoff = time.time() - 7 * 86400
+        sent = {k: t for k, t in sent.items() if t >= cutoff}
+        sent[self.alert_key(opportunity)] = time.time()
+        if self.dry_run:
+            self._dry_sent = sent
+            return
+        self.sent_path.parent.mkdir(parents=True, exist_ok=True)
+        self.sent_path.write_text(json.dumps(sent), encoding="utf-8")
+
+    def alert(self, opportunity: Opportunity, force: bool = False) -> bool:
         """
-        Make an alert about the specified Opportunity
+        Make an alert about the specified Opportunity. The same deal (product and price) is not
+        alerted again within notifications.repeat_after_hours, unless force is set (an explicit
+        request from the UI button). Returns True if an alert went out.
         """
+        if not force and self.already_alerted(opportunity):
+            self.log("Messaging Agent skips a deal it already alerted recently")
+            return False
         self.push(format_alert(opportunity))
+        self._remember(opportunity)
         self.log("Messaging Agent has completed")
+        return True
 
     def craft_message(
         self, description: str, deal_price: float, estimated_true_value: float, currency: str = "USD"

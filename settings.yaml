@@ -60,3 +60,5 @@ models:
 notifications:
   pushover: true
   telegram_bot: true
+  # The same deal (product and price) is not alerted again within this many hours.
+  repeat_after_hours: 12

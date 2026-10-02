@@ -94,8 +94,13 @@ def row_for(opp: Opportunity) -> list:
     ]
 
 
-def table_for(opps: List[Opportunity], store: str = ALL_STORES) -> list:
-    rows = [o for o in reversed(opps) if store in (None, ALL_STORES) or STORE_NAMES.get(o.deal.store, o.deal.store) == store]
+def table_for(opps: List[Opportunity], store: str = ALL_STORES, currency: str = None) -> list:
+    """Newest first, optionally only one store and one currency (INR mode hides old USD deals)."""
+    rows = [
+        o for o in reversed(opps)
+        if (currency is None or (o.currency or o.deal.currency) == currency)
+        and (store in (None, ALL_STORES) or STORE_NAMES.get(o.deal.store, o.deal.store) == store)
+    ]
     return [row_for(o) for o in rows]
 
 
@@ -110,9 +115,29 @@ class App:
             self.agent_framework = DealAgentFramework(fixture=self.fixture, dry_run=self.dry_run)
         return self.agent_framework
 
+    @property
+    def currency(self) -> str:
+        return "USD" if self.get_agent_framework().mode == "usd_legacy" else "INR"
+
+    def table(self, store: str = ALL_STORES) -> list:
+        return table_for(self.get_agent_framework().memory, store, self.currency)
+
     def store_choices(self) -> list:
-        stores = sorted({STORE_NAMES.get(o.deal.store, o.deal.store) for o in self.get_agent_framework().memory})
+        opps = [o for o in self.get_agent_framework().memory if (o.currency or o.deal.currency) == self.currency]
+        stores = sorted({STORE_NAMES.get(o.deal.store, o.deal.store) for o in opps})
         return [ALL_STORES] + [s for s in stores if s]
+
+    def send_alert(self, url: str) -> str:
+        """Send one alert for the deal with this URL (the user asked for it explicitly)."""
+        if not url:
+            return "Select a deal in the table first."
+        for opp in self.get_agent_framework().memory:
+            if opp.deal.url == url:
+                self.get_agent_framework().init_agents_as_needed()
+                sent = self.get_agent_framework().planner.messenger.alert(opp, force=True)
+                title = opp.deal.title or opp.deal.product_description[:60]
+                return f"Alert {'sent' if sent else 'not sent'}: {title}"
+        return "That deal is no longer in memory."
 
     def run(self):
         framework = self.get_agent_framework()
@@ -130,7 +155,7 @@ class App:
             log_data = gr.State([])
 
             def update_output(log_data, store, log_queue, result_queue):
-                initial_result = table_for(self.get_agent_framework().memory, store)
+                initial_result = self.table(store)
                 final_result = None
                 while True:
                     try:
@@ -189,7 +214,7 @@ class App:
                         self.get_agent_framework().run()
                     except Exception as exc:  # noqa: BLE001
                         logging.error(f"Run failed: {exc}")
-                    result_queue.put(table_for(self.get_agent_framework().memory, store))
+                    result_queue.put(self.table(store))
 
                 thread = threading.Thread(target=worker)
                 thread.start()
@@ -198,14 +223,15 @@ class App:
                     yield log_data, output, final_result
 
             def refresh(store):
-                return table_for(self.get_agent_framework().memory, store), gr.update(choices=self.store_choices())
+                return self.table(store), gr.update(choices=self.store_choices())
 
-            def do_select(store, evt: gr.SelectData):
-                url = evt.row_value[-1] if getattr(evt, "row_value", None) else None
-                for opp in self.get_agent_framework().memory:
-                    if opp.deal.url == url:
-                        self.get_agent_framework().planner.messenger.alert(opp)
-                        break
+            def do_select(evt: gr.SelectData):
+                # Selecting a row only remembers it. Gradio fires this for every cell click (and
+                # again when the table refreshes), so it must never send anything by itself.
+                row = getattr(evt, "row_value", None)
+                url = row[-1] if row else None
+                title = row[0] if row else ""
+                return url, f"Selected: {title}" if url else "Select a deal in the table first."
 
             with gr.Row():
                 gr.Markdown(
@@ -215,6 +241,9 @@ class App:
                 gr.Markdown(f'<div style="text-align: center;font-size:14px">{subtitle}</div>')
             with gr.Row():
                 store_filter = gr.Dropdown(choices=self.store_choices(), value=ALL_STORES, label="Store", scale=0, min_width=220)
+                alert_button = gr.Button("Send alert for selected deal", scale=0, min_width=240)
+                alert_status = gr.Markdown("")
+            selected_url = gr.State(None)
             with gr.Row():
                 opportunities_dataframe = gr.Dataframe(
                     headers=HEADERS,
@@ -245,8 +274,9 @@ class App:
             # Live Telegram deals land in memory between scans; show them quickly.
             refresh_timer = gr.Timer(value=15, active=True)
             refresh_timer.tick(refresh, inputs=[store_filter], outputs=[opportunities_dataframe, store_filter])
-            store_filter.change(lambda s: table_for(self.get_agent_framework().memory, s), inputs=[store_filter], outputs=[opportunities_dataframe])
-            opportunities_dataframe.select(do_select, inputs=[store_filter])
+            store_filter.change(self.table, inputs=[store_filter], outputs=[opportunities_dataframe])
+            opportunities_dataframe.select(do_select, outputs=[selected_url, alert_status])
+            alert_button.click(self.send_alert, inputs=[selected_url], outputs=[alert_status])
 
         if framework.start_live():
             logging.info("Live Telegram updates are on")
