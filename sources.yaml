@@ -42,8 +42,11 @@ telegram:
 rss:
   - name: dealsmagnet
     url: https://www.dealsmagnet.com/feed
-    enabled: true
-    store: other
+    # DISABLED: robots.txt allows /feed, but the DealsMagnet Terms of Service (/ToS) say you
+    # will not "access, monitor or copy any content or information on the Service using any
+    # robot, spider, scraper or other automated means ... without our express written
+    # permission". TODO(you): enable only after getting that permission. See docs/sources.md.
+    enabled: false
     currency: INR
     # Offer price and MRP are in the item description; links under /buy, /RedirectTo,
     # /RD/ and /RDT/ are disallowed by robots.txt and are never followed.
@@ -59,14 +62,24 @@ rss:
     limit: 10
 
 # HTML listing pages of Indian deal communities. See docs/sources.md before enabling.
+# Each site needs: enabled, url, selectors (item, title, price, mrp, link, store, time, votes)
+# and terms_checked: true once you have confirmed its terms allow automated reading.
 aggregators:
   desidime:
+    # DISABLED: robots.txt allows /new, but the DesiDime Terms of Use forbid using "Automated
+    # Means, Including Spiders, Robots, Crawlers, Data Mining Tools, Or The Like To Download
+    # Data From The Service, Unless Expressly Permitted By DesiDime". The public desidimeHot
+    # Telegram channel covers its hot deals. See docs/sources.md.
     enabled: false
     url: https://www.desidime.com/new
-    limit: 40
+    terms_checked: false
   buyhatke:
-    # Disabled: see docs/sources.md for the robots.txt and terms check.
+    # DISABLED: the terms say nothing about automated access, but robots.txt disallows /api/
+    # (including its sitemap and search) and price history pages are rendered from /api/,
+    # so there is no compliant way to read price history. See docs/sources.md.
     enabled: false
+    url: https://buyhatke.com/
+    terms_checked: false
 
 # Official store APIs. Off: both need an approved affiliate account (see docs/sources.md).
 store_apis:
