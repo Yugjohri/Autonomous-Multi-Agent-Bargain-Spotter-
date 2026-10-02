@@ -16,5 +16,23 @@
     },
     "estimate": 930.8824204895075,
     "discount": 225.88242048950747
+  },
+  {
+    "deal": {
+      "product_description": "The Lenovo Yoga 7i 16\" 2-in-1 features a 16:10 2K touchscreen that folds into tablet, tent, and laptop modes, an Intel Core Ultra 7 355 processor, 16GB of RAM, and a 512GB SSD. It offers versatile multi-port connectivity, fast-charging battery for extended use, and a larger convertible display for users who want a spacious screen in a flexible convertible laptop.",
+      "price": 799.99,
+      "url": "https://www.dealnews.com/products/Lenovo/Lenovo-Yoga-7-i-2-in-1-16-inch-2-K-Touchscreen-Laptop/517319.html?iref=rss-c39"
+    },
+    "estimate": 1076.0742645263672,
+    "discount": 276.0842645263672
+  },
+  {
+    "deal": {
+      "product_description": "DJI Power 2000 is a high-capacity portable power station designed to run most household appliances and support off-grid use. It provides fast recharge to 80% in about 55 minutes, offers a quiet 30 dB operation suitable for nighttime use, and supports expandable battery capacity up to 22.5 kWh. The unit includes a 10 ms seamless UPS switching capability for outage protection and is built to handle high-draw devices reliably.",
+      "price": 759.99,
+      "url": "https://www.dealnews.com/products/DJI/DJI-Power-2000-Portable-Power-Station/501125.html?iref=rss-c142"
+    },
+    "estimate": 4434.141264724731,
+    "discount": 3674.151264724731
   }
 ]
