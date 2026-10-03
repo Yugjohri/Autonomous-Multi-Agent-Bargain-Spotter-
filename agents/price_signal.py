@@ -7,10 +7,15 @@ Signals (weights from settings.yaml, ensemble.inr):
   neural_network  the INR model trained by scripts/train_nn_inr.py (off unless it has a weight)
   mrp             MRP scaled down by mrp_factor; MRPs in India are often inflated, so this is weak
 
-The estimate is the weighted mean of the signals that are available. Confidence depends
-on how many independent signals exist and whether they agree, not on the discount size.
+The estimate is the weighted mean of the available signals that have a weight. Market and
+MRP are always computed, so a signal with weight 0 is still a check: confidence depends on
+how many signals exist and whether they agree, not on the discount size or the weights.
 High confidence needs GPT and real market listings to agree; any other two strong signals
 that agree (for example GPT and the neural network, when no close listings exist) give medium.
+The neural network is only consulted when it has a weight.
+
+docs/training_report.md has the evaluation behind the weights in settings.yaml: on held-out
+data GPT alone gave the best estimate, and adding market, MRP or the network did not help.
 """
 
 import re
@@ -113,19 +118,27 @@ def value_inr(
         signals["mrp"] = float(mrp) * mrp_factor
         notes.append(f"MRP {format_money(mrp)} x{mrp_factor:g}")
 
-    usable = {k: v for k, v in signals.items() if weights.get(k, 0) > 0}
-    if not usable:
+    if not signals:
         return Valuation(price, 0.0, 0.0, "low", "no valuation signal available", signals)
+    # Signals with a weight make the estimate; the others still count as checks for confidence.
+    usable = {k: v for k, v in signals.items() if weights.get(k, 0) > 0}
+    used_weights = {k: weights[k] for k in usable}
+    fallback = not usable
+    if fallback:
+        # No weighted signal (GPT failed, say): average whatever checks there are.
+        usable, used_weights = dict(signals), {k: 1.0 for k in signals}
 
-    total = sum(weights[k] for k in usable)
+    total = sum(used_weights.values())
     # Whole rupees: a blended estimate is not precise to the paisa.
-    estimate = round(sum(weights[k] * v for k, v in usable.items()) / total)
+    estimate = round(sum(used_weights[k] * v for k, v in usable.items()) / total)
     discount = estimate - price
     discount_pct = round(100 * discount / estimate, 1) if estimate > 0 else 0.0
 
-    confidence = _confidence(usable, sources_count)
-    agreement = _agreement_note(usable)
+    confidence = _confidence(signals, sources_count)
+    agreement = _agreement_note(signals)
     reason = "; ".join(notes) + (f"; {agreement}" if agreement else "")
+    if fallback:
+        reason += "; estimate from checks only"
     return Valuation(round(estimate, 2), round(discount, 2), discount_pct, confidence, reason, signals)
 
 

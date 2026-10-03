@@ -10,9 +10,14 @@ pricer_mode: inr
 ensemble:
   inr:
     # Weights of the valuation signals; missing signals are dropped and the rest renormalized.
-    frontier: 0.6        # GPT estimate of the typical Indian selling price, with INR RAG context
-    market: 0.3          # median price of similar items in the products_inr store
-    mrp: 0.1             # MRP scaled by mrp_factor (MRPs in India are often inflated)
+    # Fitted on the validation split by scripts/fit_ensemble.py (docs/training_report.md):
+    # GPT alone gave the best estimate on validation and on the June 2026 test set, and
+    # adding market, MRP or the INR neural network did not improve it. A signal with
+    # weight 0 still counts as a check for the confidence label (GPT and market agreeing).
+    frontier: 1.0        # GPT estimate of the typical Indian selling price, with INR RAG context
+    market: 0.0          # median price of similar items in the products_inr store
+    mrp: 0.0             # MRP scaled by mrp_factor (MRPs in India are often inflated)
+    neural_network: 0.0  # models/nn_inr.pth (scripts/train_nn_inr.py); loaded only when above 0
     mrp_factor: 0.75
     # Similar items must be at least this close (cosine distance) to count as market evidence.
     market_max_distance: 0.45

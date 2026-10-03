@@ -46,7 +46,7 @@ def blend(df: pd.DataFrame, weights, mrp_factor: float):
         # Valued at its own price: the estimate does not depend on the price, but the MRP
         # signal only counts when the MRP is above it, as for a live deal.
         v = value_inr(
-            price=row.price_inr, mrp=mrp, llm_estimate=row.frontier, weights=dict(weights),
+            price=row.price_inr, mrp=mrp, llm_estimate=row.frontier, weights={s: float(weights.get(s, 0.0)) for s in SIGNALS},
             mrp_factor=mrp_factor, nn_estimate=row.nn, similars=_fake_market(row.market) if has_market else None,
         )
         estimates.append(v.estimate if v.signals else np.nan)
