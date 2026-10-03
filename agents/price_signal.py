@@ -53,7 +53,9 @@ def market_evidence(similars: List[Similar], max_distance: float = 0.45, min_ite
 # comparison is unreliable. "12-in-1", "3 jars" or "4GB" are not multipacks.
 MULTIPACK_RE = re.compile(
     r"\bcombo\b|\bmulti-?pack\b|\bbundle\b|\b(pack|set) of\s*(?:[2-9]|\d{2,})\b|"
-    r"\b(?:[2-9]|\d{2,})\s*-?\s*(?:pcs|pieces|pack|units|packs)\b|\b(?:[2-9]|\d{2,})\s*x\s*\d|"
+    r"\b(?:[2-9]|\d{2,})\s*-?\s*(?:pcs|pieces|pack|units|packs)\b|"
+    # "2 x 750ml" is a multipack; "2560x1440" or "6x4 inches" is a size.
+    r"\b(?:[2-9]|1\d)\s*x\s*\d+(?:\.\d+)?\s*(?:ml|l|ltr|litres?|g|gm|kg|pcs|pieces|tablets|capsules|sheets|rolls)\b|"
     r"\bbuy\s*\d+\s*get\s*\d+\b|\bb\d+g\d+\b",
     re.IGNORECASE,
 )
