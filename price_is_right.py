@@ -1,10 +1,8 @@
 import argparse
 import logging
 import os
-import queue
 import sys
-import threading
-import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import List
 
@@ -31,37 +29,28 @@ ALL_STORES = "All stores"
 HEADERS = ["Deal", "Price", "MRP", "Estimate", "Discount", "Discount %", "Confidence", "Store", "Source", "Age", "URL"]
 
 
-class QueueHandler(logging.Handler):
-    def __init__(self, log_queue):
+class LogBuffer(logging.Handler):
+    """The most recent log lines, from every run (scheduled, live or manual), for the UI."""
+
+    def __init__(self, size: int = 200):
         super().__init__()
-        self.log_queue = log_queue
+        self.lines = deque(maxlen=size)
+        self.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S %z"))
 
     def emit(self, record):
-        self.log_queue.put(self.format(record))
+        self.lines.append(reformat(self.format(record)))
+
+    def html(self, last: int = 18) -> str:
+        return html_for(list(self.lines)[-last:])
 
 
-def html_for(log_data):
-    output = "<br>".join(log_data[-18:])
+def html_for(log_lines):
+    output = "<br>".join(log_lines)
     return f"""
     <div id="scrollContent" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; background-color: #222229; padding: 10px;">
     {output}
     </div>
     """
-
-
-_queue_handler = None
-
-
-def setup_logging(log_queue):
-    """Route log records to the UI. One handler only, pointed at the newest queue."""
-    global _queue_handler
-    logger = logging.getLogger()
-    if _queue_handler is not None:
-        logger.removeHandler(_queue_handler)
-    _queue_handler = QueueHandler(log_queue)
-    _queue_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S %z"))
-    logger.addHandler(_queue_handler)
-    logger.setLevel(logging.INFO)
 
 
 def age_label(posted_at) -> str:
@@ -151,25 +140,10 @@ class App:
         if mode == "usd_legacy":
             subtitle = "Legacy US mode: DealNews RSS valued by a fine-tuned Llama, GPT with RAG and a neural network."
 
-        with gr.Blocks(title="Bargain Spotter", fill_width=True) as ui:
-            log_data = gr.State([])
+        log_buffer = LogBuffer()
+        logging.getLogger().addHandler(log_buffer)
 
-            def update_output(log_data, store, log_queue, result_queue):
-                initial_result = self.table(store)
-                final_result = None
-                while True:
-                    try:
-                        message = log_queue.get_nowait()
-                        log_data.append(reformat(message))
-                        yield log_data, html_for(log_data), final_result or initial_result
-                    except queue.Empty:
-                        try:
-                            final_result = result_queue.get_nowait()
-                            yield log_data, html_for(log_data), final_result or initial_result
-                        except queue.Empty:
-                            if final_result is not None:
-                                break
-                            time.sleep(0.1)
+        with gr.Blocks(title="Bargain Spotter", fill_width=True) as ui:
 
             def get_plot():
                 documents, vectors, colors = DealAgentFramework.get_plot_data(max_datapoints=800, mode=mode)
@@ -204,23 +178,9 @@ class App:
                 )
                 return fig
 
-            def run_with_logging(initial_log_data, store):
-                log_queue = queue.Queue()
-                result_queue = queue.Queue()
-                setup_logging(log_queue)
-
-                def worker():
-                    try:
-                        self.get_agent_framework().run()
-                    except Exception as exc:  # noqa: BLE001
-                        logging.error(f"Run failed: {exc}")
-                    result_queue.put(self.table(store))
-
-                thread = threading.Thread(target=worker)
-                thread.start()
-
-                for log_data, output, final_result in update_output(initial_log_data, store, log_queue, result_queue):
-                    yield log_data, output, final_result
+            def scan_now():
+                started = self.get_agent_framework().scan_now()
+                return "Scan started; watch the log below." if started else "A scan is already running."
 
             def refresh(store):
                 return self.table(store), gr.update(choices=self.store_choices())
@@ -242,6 +202,7 @@ class App:
             with gr.Row():
                 store_filter = gr.Dropdown(choices=self.store_choices(), value=ALL_STORES, label="Store", scale=0, min_width=220)
                 alert_button = gr.Button("Send alert for selected deal", scale=0, min_width=240)
+                scan_button = gr.Button("Scan now", scale=0, min_width=120)
                 alert_status = gr.Markdown("")
             selected_url = gr.State(None)
             with gr.Row():
@@ -259,27 +220,21 @@ class App:
                 with gr.Column(scale=1):
                     plot = gr.Plot(value=get_plot(), show_label=False)
 
-            ui.load(
-                run_with_logging,
-                inputs=[log_data, store_filter],
-                outputs=[log_data, logs, opportunities_dataframe],
-            )
-
-            timer = gr.Timer(value=300, active=True)
-            timer.tick(
-                run_with_logging,
-                inputs=[log_data, store_filter],
-                outputs=[log_data, logs, opportunities_dataframe],
-            )
-            # Live Telegram deals land in memory between scans; show them quickly.
+            # Scans run on the server (DealAgentFramework.start_scheduler); the page only displays.
+            ui.load(log_buffer.html, outputs=[logs])
+            ui.load(self.table, inputs=[store_filter], outputs=[opportunities_dataframe])
+            log_timer = gr.Timer(value=3, active=True)
+            log_timer.tick(log_buffer.html, outputs=[logs])
             refresh_timer = gr.Timer(value=15, active=True)
             refresh_timer.tick(refresh, inputs=[store_filter], outputs=[opportunities_dataframe, store_filter])
+            scan_button.click(scan_now, outputs=[alert_status])
             store_filter.change(self.table, inputs=[store_filter], outputs=[opportunities_dataframe])
             opportunities_dataframe.select(do_select, outputs=[selected_url, alert_status])
             alert_button.click(self.send_alert, inputs=[selected_url], outputs=[alert_status])
 
         if framework.start_live():
             logging.info("Live Telegram updates are on")
+        framework.start_scheduler()
         ui.launch(share=False, inbrowser=os.getenv("NO_BROWSER") != "1")
 
 

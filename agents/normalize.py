@@ -102,6 +102,14 @@ TRACKING_PREFIXES = ("utm_", "affextparam", "otracker", "pf_rd_", "pd_rd_", "aff
 
 AMAZON_ASIN = re.compile(r"/(?:dp|gp/product|gp/aw/d|product|exec/obidos/asin|d)/([A-Z0-9]{10})(?:[/?]|$)", re.I)
 FLIPKART_ITEM = re.compile(r"/p/(itm[0-9a-z]{6,})", re.I)
+FLIPKART_PID = re.compile(r"[A-Z0-9]{16}")
+
+# Canonical ids that name one real store product (used to judge label quality).
+PRODUCT_ID_RE = re.compile(r"^(amazon_in:[A-Z0-9]{10}|flipkart:(ITM[0-9A-Z]{6,}|[A-Z0-9]{16}))$")
+
+
+def is_product_id(canonical: str) -> bool:
+    return bool(canonical) and bool(PRODUCT_ID_RE.match(canonical))
 
 # Paths a source's robots.txt forbids, which we must never request even via a redirect.
 NEVER_REQUEST = [
@@ -183,8 +191,17 @@ def clean_url(url: str) -> str:
     return urlunsplit(("https", netloc, path, urlencode(kept), ""))
 
 
+def flipkart_pid(url: str) -> Optional[str]:
+    pid = dict(parse_qsl(urlsplit(url).query)).get("pid", "")
+    return pid.upper() if FLIPKART_PID.fullmatch(pid.upper()) else None
+
+
 def canonical_id(url: str) -> str:
-    """amazon_in:<ASIN>, flipkart:<ITEM ID>, otherwise <store>:<hash of the cleaned url>."""
+    """
+    amazon_in:<ASIN>; flipkart:<PID> (the 16 character product id, present on almost every
+    Flipkart link, including /product/p/itme?pid=... links with no item id), else
+    flipkart:<ITM id>; otherwise <store>:<hash of the cleaned url>.
+    """
     cleaned = clean_url(url)
     store = detect_store(cleaned)
     if store == "amazon_in":
@@ -192,6 +209,9 @@ def canonical_id(url: str) -> str:
         if asin:
             return f"amazon_in:{asin}"
     if store == "flipkart":
+        pid = flipkart_pid(cleaned)
+        if pid:
+            return f"flipkart:{pid}"
         match = FLIPKART_ITEM.search(urlsplit(cleaned).path)
         if match:
             return f"flipkart:{match.group(1).upper()}"

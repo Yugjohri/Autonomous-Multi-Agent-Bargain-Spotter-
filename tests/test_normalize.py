@@ -54,7 +54,7 @@ CASES = [
     (
         "https://grbn.in/7LfC12",
         "flipkart",
-        "flipkart:ITME1101ACAA86CB",
+        "flipkart:SMWGG5GFTQFBFZC2",
         "https://www.flipkart.com/v7-12-w-2-1-wall-charger-mobile/p/itme1101acaa86cb?pid=SMWGG5GFTQFBFZC2",
     ),
     ("https://links.bigtricks.in/fzlta", "amazon_in", "amazon_in:B07BH3RKL4", "https://www.amazon.in/dp/B07BH3RKL4"),
@@ -70,7 +70,7 @@ CASES = [
     (
         "https://www.flipkart.com/apple-iphone-15/p/itm6ac6485515ae4?pid=MOBGTAGPTB3VS24W&lid=LSTMOB&marketplace=FLIPKART&otracker=search&affid=xyz",
         "flipkart",
-        "flipkart:ITM6AC6485515AE4",
+        "flipkart:MOBGTAGPTB3VS24W",
         "https://www.flipkart.com/apple-iphone-15/p/itm6ac6485515ae4?pid=MOBGTAGPTB3VS24W",
     ),
     (
@@ -204,3 +204,16 @@ def test_ezlnk_redirect_through_cashback_wrapper():
     link = normalize_link("https://ezlnk.in/uk3f2", RedirectResolver(http))
     assert link.canonical_id == "flipkart:ITM4B878D76C4D12"
     assert [u for _, u in http.requests] == ["https://ezlnk.in/uk3f2"], "the cashback site itself is never requested"
+
+
+def test_flipkart_pid_only_links_get_a_product_id():
+    from agents.normalize import is_product_id
+
+    # 2,168 of 2,422 Flipkart deal posts in the backfill link like this, with no item id.
+    a = canonical_id("https://www.flipkart.com/product/p/itme?pid=PWBHNYXDC9QK8AYH&affid=x")
+    b = canonical_id("https://www.flipkart.com/anker-power-bank/p/itm1234abcd5678?pid=PWBHNYXDC9QK8AYH&lid=LST")
+    assert a == b == "flipkart:PWBHNYXDC9QK8AYH"
+    assert canonical_id("https://www.flipkart.com/x/p/itm71f2b7f22cce7?pid=PERGQUT") == "flipkart:ITM71F2B7F22CCE7"
+    assert is_product_id(a) and is_product_id("amazon_in:B0CHX1W1XY") and is_product_id("flipkart:ITM71F2B7F22CCE7")
+    assert not is_product_id(canonical_id("https://www.myntra.com/shoes/123/buy"))
+    assert not is_product_id("amazon_in:5f46efe6e74bb907")

@@ -97,6 +97,8 @@ class DealAgentFramework:
         self.live_queue: "queue.Queue" = queue.Queue()
         self._run_lock = threading.Lock()
         self._live_thread: Optional[threading.Thread] = None
+        self._scheduler_thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
 
     def _prepare_fixture_run(self) -> None:
         from agents.inr_store import offline_hf
@@ -187,7 +189,7 @@ class DealAgentFramework:
 
     def run(self, extra: Optional[list] = None, live: bool = False) -> List[Opportunity]:
         """
-        One pipeline run. Serialized: the 5 minute timer and live Telegram posts share it.
+        One pipeline run. Serialized: scheduled scans, manual scans and live posts share it.
         :param live: process only the given live posts, without re-reading every source
         """
         with self._run_lock:
@@ -241,6 +243,41 @@ class DealAgentFramework:
         self._live_thread = threading.Thread(target=worker, name="live-deals", daemon=True)
         self._live_thread.start()
         return True
+
+    # -------------------------------------------------------------- scheduler
+
+    def start_scheduler(self, interval_seconds: Optional[float] = None) -> bool:
+        """
+        Run a full scan now and then every scan.interval_seconds, in this process. Scans used
+        to be driven by a timer in the browser tab, so they stopped whenever the browser froze
+        a background tab and doubled when two tabs were open.
+        """
+        if self._scheduler_thread is not None:
+            return False
+        interval = float(interval_seconds or get(self.settings, "scan.interval_seconds", 300))
+
+        def worker():
+            while not self._stop.is_set():
+                try:
+                    self.run()
+                except Exception as exc:  # noqa: BLE001
+                    self.log(f"Scheduled scan failed: {exc}")
+                self._stop.wait(interval)
+
+        self._scheduler_thread = threading.Thread(target=worker, name="scheduled-scans", daemon=True)
+        self._scheduler_thread.start()
+        self.log(f"Scanning every {interval / 60:g} minutes")
+        return True
+
+    def scan_now(self) -> bool:
+        """Start a full scan in the background unless one is already running."""
+        if self._run_lock.locked():
+            return False
+        threading.Thread(target=self.run, name="manual-scan", daemon=True).start()
+        return True
+
+    def stop(self) -> None:
+        self._stop.set()
 
     # ------------------------------------------------------------------- plot
 

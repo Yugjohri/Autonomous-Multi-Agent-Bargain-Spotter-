@@ -24,13 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents.cache import DiskCache  # noqa: E402
 from agents.config import load_sources_config  # noqa: E402
-from agents.normalize import RedirectResolver, canonical_id, host_of, is_store_url  # noqa: E402
+from agents.normalize import RedirectResolver, canonical_id, host_of, is_product_id, is_store_url  # noqa: E402
 from agents.sources import build_http  # noqa: E402
 
 log = logging.getLogger("resolve")
 
 CACHE_TTL = 365 * 24 * 3600
-REAL_ID_PREFIXES = ("amazon_in:B", "flipkart:ITM")
 
 
 def urls_to_resolve(path: Path, resolver: RedirectResolver) -> dict:
@@ -52,7 +51,7 @@ def resolve_host(resolver: RedirectResolver, host: str, urls, limit: int) -> tup
     for url in sorted(urls)[: limit or None]:
         final = resolver.resolve(url)
         done += 1
-        if canonical_id(final).startswith(REAL_ID_PREFIXES):
+        if is_product_id(canonical_id(final)):
             real += 1
         if done % 200 == 0:
             resolver.cache.flush()

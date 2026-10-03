@@ -49,10 +49,12 @@ def recanonicalize(rows: Iterable[dict], resolved: Dict[str, str]) -> Iterable[d
     Swap in the real product id for rows whose short link was resolved later
     (scripts/resolve_links.py). The observation log itself is never rewritten.
     """
-    from agents.normalize import canonical_id, detect_store
+    from agents.normalize import canonical_id, detect_store, is_store_url
 
     for row in rows:
-        target = resolved.get(row.get("url") or "")
+        url = row.get("url") or ""
+        # Store links are recomputed too, so id rule changes apply to old observations.
+        target = resolved.get(url) or (url if is_store_url(url) else None)
         if target:
             row = dict(row)
             row["canonical_id"] = canonical_id(target)
@@ -147,7 +149,9 @@ def main() -> int:
         writer = csv.DictWriter(file, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(labels)
-    real = [l for l in labels if l["canonical_id"].startswith(("amazon_in:B", "flipkart:ITM"))]
+    from agents.normalize import is_product_id
+
+    real = [l for l in labels if is_product_id(l["canonical_id"])]
     print(f"Wrote {len(labels)} products to {out} (using {len(resolved)} resolved short links)")
     print(f"  with a real Amazon/Flipkart id: {len(real)}")
     print(f"  seen 2+ times: {sum(l['observations'] >= 2 for l in labels)} "
