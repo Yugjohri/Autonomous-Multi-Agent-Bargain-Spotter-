@@ -2,12 +2,15 @@
 INR valuation from several weak signals, with an honest confidence label.
 
 Signals (weights from settings.yaml, ensemble.inr):
-  frontier  GPT's estimate of the typical selling price in India, given similar INR items
-  market    median price of close neighbours in products_inr (needs a few close items)
-  mrp       MRP scaled down by mrp_factor; MRPs in India are often inflated, so this is weak
+  frontier        GPT's estimate of the typical selling price in India, given similar INR items
+  market          median price of close neighbours in products_inr (needs a few close items)
+  neural_network  the INR model trained by scripts/train_nn_inr.py (off unless it has a weight)
+  mrp             MRP scaled down by mrp_factor; MRPs in India are often inflated, so this is weak
 
 The estimate is the weighted mean of the signals that are available. Confidence depends
 on how many independent signals exist and whether they agree, not on the discount size.
+High confidence needs GPT and real market listings to agree; any other two strong signals
+that agree (for example GPT and the neural network, when no close listings exist) give medium.
 """
 
 import re
@@ -18,7 +21,8 @@ from typing import Dict, List, Optional
 from agents.inr_store import Similar
 from agents.money import format_money
 
-DEFAULT_WEIGHTS = {"frontier": 0.6, "market": 0.3, "mrp": 0.1}
+DEFAULT_WEIGHTS = {"frontier": 0.6, "market": 0.3, "mrp": 0.1, "neural_network": 0.0}
+STRONG = ("frontier", "market", "neural_network")
 AGREE = 0.25  # signals within 25% of each other agree
 LOOSE = 0.40
 
@@ -89,6 +93,7 @@ def value_inr(
     market_max_distance: float = 0.45,
     market_min_items: int = 3,
     sources_count: int = 1,
+    nn_estimate: Optional[float] = None,
 ) -> Valuation:
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
     signals: Dict[str, float] = {}
@@ -101,6 +106,9 @@ def value_inr(
     if market:
         signals["market"] = float(market.median)
         notes.append(f"{market.count} similar listings median {format_money(market.median)}")
+    if nn_estimate and nn_estimate > 0 and weights.get("neural_network", 0) > 0:
+        signals["neural_network"] = float(nn_estimate)
+        notes.append(f"model {format_money(nn_estimate)}")
     if mrp and mrp > price:
         signals["mrp"] = float(mrp) * mrp_factor
         notes.append(f"MRP {format_money(mrp)} x{mrp_factor:g}")
@@ -122,14 +130,16 @@ def value_inr(
 
 
 def _confidence(signals: Dict[str, float], sources_count: int) -> str:
-    strong = {k: v for k, v in signals.items() if k in ("frontier", "market")}
-    if len(strong) == 2:
-        gap = _gap(strong["frontier"], strong["market"])
+    if "frontier" in signals and "market" in signals:
+        gap = _gap(signals["frontier"], signals["market"])
         if gap <= AGREE:
             return "high"
         if gap <= LOOSE:
             return "medium"
         return "low"
+    strong = [v for k, v in signals.items() if k in STRONG]
+    if len(strong) >= 2:
+        return "medium" if _gap(max(strong), min(strong)) <= AGREE else "low"
     if len(signals) >= 2:
         values = list(signals.values())
         if _gap(values[0], values[1]) <= AGREE:
@@ -145,6 +155,9 @@ def _agreement_note(signals: Dict[str, float]) -> str:
     if "frontier" in signals and "market" in signals:
         gap = _gap(signals["frontier"], signals["market"])
         return "GPT and market agree" if gap <= AGREE else f"GPT and market differ by {gap:.0%}"
+    if "frontier" in signals and "neural_network" in signals:
+        gap = _gap(signals["frontier"], signals["neural_network"])
+        return "GPT and model agree" if gap <= AGREE else f"GPT and model differ by {gap:.0%}"
     if len(signals) == 1:
         return f"only one signal ({next(iter(signals))})"
     return ""
