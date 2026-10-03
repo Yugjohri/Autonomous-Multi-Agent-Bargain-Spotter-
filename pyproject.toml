@@ -26,6 +26,16 @@ dependencies = [
     "tqdm>=4.67.1",
 ]
 
+# CUDA build of PyTorch on Windows and Linux (CUDA 13.0 supports RTX 50xx Blackwell GPUs).
+# macOS has no CUDA wheels and keeps the default PyPI build.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -37,4 +47,9 @@ dev = [
 notebooks = [
     "ipywidgets>=8.1.9",
     "jupyter>=1.1.1",
+]
+training = [
+    "kagglehub>=1.0.2",
+    "matplotlib>=3.11.2",
+    "pyarrow>=25.0.1",
 ]
