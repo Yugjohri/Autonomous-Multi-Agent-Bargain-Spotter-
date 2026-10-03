@@ -32,6 +32,9 @@ ensemble weights now in `settings.yaml`. Data details are in [data_report.md](da
 Recommendation: **do not enable the neural network.** Keep GPT as the estimator and invest
 in data (more categories, current prices) before more model work. Details below.
 
+After this report the Frontier was switched from gpt-5.1 to the much cheaper gpt-6-luna,
+which was as accurate within noise; all other Frontier numbers here are gpt-5.1's.
+
 ## Setup
 
 - GPU: RTX 5070 Ti (16 GB, Blackwell sm_120), driver 617.14, PyTorch 2.14.1+cu130 from the
@@ -266,7 +269,7 @@ $10, gpt-5.6-luna $0.20 / $1.20, gpt-6-luna $0.10 / $0.50.
 
 | model | test median APE | test within 20% | test median pred/actual | val median APE | val within 20% | cost of 686 calls | median seconds per call |
 |---|---|---|---|---|---|---|---|
-| gpt-5.1 (current) | 16.7% | 57.5% | 1.00 | 12.7% | 64.0% | $0.44 | |
+| gpt-5.1 (used until this report) | 16.7% | 57.5% | 1.00 | 12.7% | 64.0% | $0.44 | |
 | gpt-5.6-luna | 18.4% | 53.0% | 0.88 | 11.3% | 64.3% | $0.063 | 0.85 |
 | gpt-6-luna | 17.8% | 53.5% | 0.90 | 11.2% | 67.7% | $0.031 | 0.92 |
 
@@ -289,6 +292,34 @@ Paired bootstrap of mean |log error| against gpt-5.1 (positive means worse, 95% 
   safe direction: a lower "normal price" means fewer false discounts, which was the live
   complaint, at the risk of missing some real deals. Under Rs 1,000, where gpt-5.1
   overestimates (ratio 1.18), gpt-6-luna is closer (1.07).
+
+### Switch to gpt-6-luna, and why there is no calibration factor
+
+`models.frontier` in `settings.yaml` is now `gpt-6-luna` (with its price in
+`models.prices_per_million`); the scanner stays on gpt-5-mini. Every other Frontier number
+in this report is gpt-5.1's, kept to document the switch.
+
+Before switching, the test underestimate was checked on validation, since a correction may
+only be fitted there. gpt-6-luna's median predicted/actual by price band (95% bootstrap
+interval):
+
+| price band | validation n | validation ratio | test n | test ratio |
+|---|---|---|---|---|
+| under Rs 1k | 190 | 1.000 (1.000 to 1.045) | 35 | 1.072 (1.000 to 1.231) |
+| Rs 1k to 10k | 70 | 1.014 (0.993 to 1.057) | 66 | 0.799 (0.761 to 0.854) |
+| Rs 10k to 50k | 32 | 1.000 (0.974 to 1.000) | 77 | 0.909 (0.864 to 0.974) |
+| over Rs 50k | 8 | 1.000 (0.923 to 1.064) | 22 | 0.946 (0.873 to 1.038) |
+
+Validation shows no bias in any band, so a per-band factor fitted on validation would be 1.0
+and **no calibration was added**. The underestimate exists only on the June 2026 test set,
+like the 0.66 ratio of the trained models, so it is most likely price movement and the shift
+in what is being priced, not a property of the model a validation fit could correct. Two
+caveats: validation estimates are close to 1.0 partly because GPT can copy the price of a
+near-identical product in its context (133 of the 300 validation answers equal a
+neighbour's price, 54% of those under Rs 1k), and the over Rs 50k band has only 8
+validation items. If live deals show
+the same 1k to 10k underestimate, a calibration would need newer labelled data than these
+splits.
 
 ## Separate check: products from Telegram deal posts
 
@@ -336,6 +367,8 @@ the middle: it predicts 1.66 times the deal price under Rs 1,000 and 0.13 times 
    place (`ensemble.inr.neural_network` above 0 loads `models/nn_inr.pth`) if better data
    changes this.
 2. **Keep the new weights** (GPT alone for the estimate, market and MRP as confidence checks).
+   The Frontier now runs on gpt-6-luna, which matched gpt-5.1 within noise at about a
+   fourteenth of the cost (see "Cheaper GPT models"; no calibration, validation shows no bias).
    They are better on validation and test.
 3. **Treat "high confidence" with care.** It is well calibrated on data like the training
    data, not on the 2026 test set. A useful next step is to measure it on surfaced live deals
@@ -358,7 +391,7 @@ uv run python scripts/make_splits.py
 uv run python populate_vectorstore.py --currency INR --reset --from-split data/processed/train.parquet \
     --keep-source telegram: --holdout data/processed/val.parquet data/processed/test.parquet
 uv run python scripts/run_baselines.py
-uv run python scripts/eval_frontier.py          # about $0.45 of gpt-5.1, cached, capped at $3
+uv run python scripts/eval_frontier.py          # models.frontier (gpt-6-luna about $0.03; gpt-5.1 was $0.45), cached, capped
 uv run python scripts/train_nn_inr.py           # progress in models/nn_inr_progress.txt
 uv run python scripts/fit_ensemble.py
 uv run python scripts/evaluate_inr.py           # tables and docs/images/*.png

@@ -58,12 +58,15 @@ scan:
 
 models:
   scanner: gpt-5-mini
-  frontier: gpt-5.1
+  # gpt-6-luna matched gpt-5.1 within noise on held-out data at about a fourteenth of the
+  # cost (docs/training_report.md, "Cheaper GPT models"). Set gpt-5.1 to go back.
+  frontier: gpt-6-luna
   # USD per million tokens (input, output), only used to log an approximate cost per call.
   # Check https://openai.com/api/pricing/ and update if they change.
   prices_per_million:
     gpt-5-mini: [0.25, 2.00]
     gpt-5.1: [1.25, 10.00]
+    gpt-6-luna: [0.10, 0.50]
 
 notifications:
   pushover: true

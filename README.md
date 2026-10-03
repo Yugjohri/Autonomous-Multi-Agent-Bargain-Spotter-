@@ -21,7 +21,7 @@ flowchart LR
     Sources --> N["Normalize<br/>resolve short links, strip affiliate tags,<br/>canonical id: amazon_in:ASIN / flipkart:ITM..."]
     N --> F["Pre-filter<br/>priced, known store, fresh, unseen,<br/>deduped across channels"]
     F -->|"30 candidates max"| S["Scanner Agent<br/>gpt-5-mini picks the best 5,<br/>payable INR price, conditions"]
-    S --> E["Ensemble Agent<br/>Frontier (gpt-5.1, INR RAG)<br/>+ market median + MRP"]
+    S --> E["Ensemble Agent<br/>Frontier (gpt-6-luna, INR RAG)<br/>+ market median + MRP"]
     E --> P["Planning Agent<br/>≥ ₹500 and ≥ 20% off,<br/>top 3, category cooldown"]
     P --> M["Messaging Agent<br/>Pushover, Telegram bot"]
     P --> UI["Gradio UI<br/>deals table, live log, 3D product map"]
@@ -44,12 +44,12 @@ flowchart LR
 3. **Scanner Agent.** gpt-5-mini sees at most 30 candidates and picks the best five. It
    resolves only what regex cannot: the payable price versus conditional bank, exchange or
    cashback offers (kept in a coupon note), a clean description, category and brand.
-4. **Ensemble Agent.** Values each deal from three signals with weights from
-   `settings.yaml`: the Frontier Agent (gpt-5.1 asked for the typical selling price in India,
-   with similar INR products from the `products_inr` Chroma store as context), the median
-   price of close neighbours in that store, and the MRP scaled down because Indian MRPs are
-   often inflated. Confidence (low, medium, high) depends on how many signals exist and
-   whether they agree, and comes with a one-line reason.
+4. **Ensemble Agent.** Values each deal with the Frontier Agent (gpt-6-luna asked for the
+   typical selling price in India, with similar INR products from the `products_inr` Chroma
+   store as context), checked against the median price of close neighbours in that store and
+   the MRP scaled down because Indian MRPs are often inflated. Weights are in `settings.yaml`
+   (fitted on held-out data: GPT alone for the estimate). Confidence (low, medium, high)
+   depends on how many signals exist and whether they agree, and comes with a one-line reason.
 5. **Planning Agent.** Keeps deals at least ₹500 and 20% below their estimate, surfaces the
    top three per run with one per category and a category cooldown, and alerts the ones with
    at least medium confidence.
