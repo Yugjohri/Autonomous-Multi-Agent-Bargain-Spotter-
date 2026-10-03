@@ -161,3 +161,13 @@ def test_memory_dedupe_uses_canonical_id_and_price(price, new):
     post = parse_post(f"Mivi speaker @{price}\nhttps://www.amazon.in/dp/B08FTB3CCK", "x", 1, now)
     candidates, _ = build_candidates([post], None, seen, 6)
     assert bool(candidates) is new
+
+
+def test_link_check_skips_vague_titles_but_catches_mismatches():
+    from agents.extraction import link_matches_title
+
+    luggage = "https://www.amazon.in/Aristocrat-Airstop-Max-Luggage-Trolley/dp/B0D1234567"
+    charger = "https://www.flipkart.com/v7-12-w-2-1-wall-charger-mobile/p/itme1101acaa86cb"
+    assert link_matches_title("Unmissable deal on your new travel companion", luggage)
+    assert not link_matches_title("Titan Talk Smartwatch", charger)
+    assert link_matches_title("boAt Airdopes 141", "https://www.amazon.in/boAt-Airdopes-141-Bluetooth/dp/B09N3ZNHTY")

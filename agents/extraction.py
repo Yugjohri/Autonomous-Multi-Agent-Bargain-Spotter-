@@ -110,6 +110,10 @@ def link_matches_title(title: str, resolved_url: str) -> bool:
     slug = title_from_url(resolved_url)
     if not slug or not title:
         return True
+    # Only titles that name something checkable (a known brand or a model number) are compared;
+    # marketing titles like "Unmissable deal on your new travel companion" have nothing to match.
+    if not (guess_brand(title) or re.search(r"\b[a-z]*\d+[a-z0-9]*\b", title.lower())):
+        return True
     return bool(_words(title) & _words(slug))
 
 
