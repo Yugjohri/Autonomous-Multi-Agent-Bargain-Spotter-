@@ -2,6 +2,11 @@
 Evaluate the Frontier Agent (GPT with INR RAG) and the store's market signal.
 
     uv run python scripts/eval_frontier.py [--test-n 200] [--val-n 300] [--max-cost 3.0] [--no-mrp-check]
+    uv run python scripts/eval_frontier.py --model gpt-5.6-luna --prices 0.20 1.20 --no-mrp-check
+
+--model compares another OpenAI model on exactly the same items and RAG context; its
+answers are saved as frontier@<model> next to the default model's, and the market signal
+is not recomputed.
 
 Uses the app's own path: InrProductStore.similar() (8 neighbours, the item's own id
 excluded) and FrontierAgent.estimate_inr() with the first 5 as context. Run it after the
@@ -23,6 +28,7 @@ import hashlib
 import json
 import sys
 import threading
+import time
 
 import numpy as np
 
@@ -90,6 +96,9 @@ def main() -> int:
     parser.add_argument("--max-cost", type=float, default=3.0, help="USD cap for new API calls")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--no-mrp-check", action="store_true")
+    parser.add_argument("--model", help="OpenAI model to evaluate (default: models.frontier in settings.yaml)")
+    parser.add_argument("--prices", nargs=2, type=float, metavar=("IN", "OUT"),
+                        help="USD per million input and output tokens, for the cost log and cap")
     args = parser.parse_args()
     seed_everything(42)
 
@@ -101,8 +110,12 @@ def main() -> int:
 
     load_dotenv(ROOT / ".env", override=True)
     settings = load_settings()
-    model = get(settings, "models.frontier", "gpt-5.1")
-    prices = get(settings, f"models.prices_per_million.{model}", [1.25, 10.0])
+    default_model = get(settings, "models.frontier", "gpt-5.1")
+    model = args.model or default_model
+    # Unknown models are costed at the default model's price, so the cap errs on the safe side.
+    prices = args.prices or get(settings, f"models.prices_per_million.{model}",
+                                get(settings, f"models.prices_per_million.{default_model}", [1.25, 10.0]))
+    name = "frontier" if model == default_model else f"frontier@{model}"
     weights = get(settings, "ensemble.inr", {})
     client = MeteredClient(OpenAI(), prices, args.max_cost)
     frontier = FrontierAgent(client=client, model=model)
@@ -122,8 +135,8 @@ def main() -> int:
         return context[key]
 
     # Market signal for every val and test item (free).
-    report = {"model": model}
-    for split in ("val", "test"):
+    report = {"model": model, "prices_per_million": list(prices)}
+    for split in ("val", "test") if name == "frontier" else ():
         df = splits[split]
         preds = []
         for row in df.to_dict("records"):
@@ -135,17 +148,31 @@ def main() -> int:
         report[f"market_coverage_{split}"] = covered
         print(f"market {split}: coverage {100 * covered:.0f}%, {metrics(df['price_inr'], preds)}")
 
-    runs = [("frontier", "test", lambda r: frontier.estimate_inr(r["text"], similars_for(r)[:5])),
-            ("frontier", "val", lambda r: frontier.estimate_inr(r["text"], similars_for(r)[:5]))]
+    timings = []
+
+    def timed(describe):
+        def predictor(row):
+            similars = similars_for(row)[:5]
+            start = time.perf_counter()
+            value = frontier.estimate_inr(describe(row), similars)
+            timings.append(time.perf_counter() - start)
+            return value
+        return predictor
+
+    runs = [(name, "test", timed(lambda r: r["text"])), (name, "val", timed(lambda r: r["text"]))]
     if not args.no_mrp_check:
-        runs.append(("frontier_mrp", "test", lambda r: frontier.estimate_inr(mrp_description(r), similars_for(r)[:5])))
+        runs.append((name.replace("frontier", "frontier_mrp"), "test", timed(mrp_description)))
     try:
-        for name, split, predictor in runs:
+        for run_name, split, predictor in runs:
             df = samples[split]
             preds = evaluate(predictor, df, workers=args.workers, verbose=False)
-            save_predictions(name, split, df, preds)
+            save_predictions(run_name, split, df, preds)
             client.save()
-            print(f"{name} {split}: {metrics(df['price_inr'], preds)}  (spent ${client.cost:.3f} in {client.calls} calls)")
+            m = metrics(df["price_inr"], preds)
+            report[f"{run_name}/{split}"] = {**m, "missing": int(preds.isna().sum())}
+            print(f"{run_name} {split}: MdAPE {100 * m.get('mdape', float('nan')):.1f}%  "
+                  f"within20 {100 * m.get('within_20', float('nan')):.1f}%  answered {m['n']}/{len(df)}  "
+                  f"(spent ${client.cost:.3f} in {client.calls} calls)")
     except BudgetExceeded as exc:
         print(f"Stopped: {exc}")
     finally:
@@ -159,9 +186,12 @@ def main() -> int:
             rows.append({"split": split, "product_key": row["product_key"],
                          "context_mrps": [s.mrp for s in sims if s.mrp],
                          "context_prices": [s.price for s in sims]})
-    (DATA / "frontier_context.json").write_text(json.dumps(rows), encoding="utf-8")
-    report.update(new_calls=client.calls, cost_usd=round(client.cost, 4))
-    (DATA / "frontier_eval.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if name == "frontier":
+        (DATA / "frontier_context.json").write_text(json.dumps(rows), encoding="utf-8")
+    report.update(new_calls=client.calls, cost_usd=round(client.cost, 4),
+                  median_seconds_per_call=float(np.median(timings)) if timings else None)
+    suffix = "" if name == "frontier" else f"@{model}"
+    (DATA / f"frontier_eval{suffix}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"New API calls: {client.calls}, cost about ${client.cost:.3f}")
     return 0
 

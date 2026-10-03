@@ -43,8 +43,8 @@ in data (more categories, current prices) before more model work. Details below.
   the same 200 with the MRP added, and 300 validation items. RAG context came from
   `products_inr` rebuilt from the train split only (plus 367 live Telegram rows, minus 3 that
   matched validation or test products), so no held-out product was ever in the context.
-- Spend: GPT-5.1 evaluation about $0.44 (686 calls including a 10-call smoke test, cap $3); gpt-5-mini categories about
-  $0.09. Total about $0.53.
+- Spend: GPT-5.1 evaluation about $0.44 (686 calls including a 10-call smoke test, cap $3); the two Luna comparisons $0.09; gpt-5-mini categories about
+  $0.09. Total about $0.62.
 
 ## Results on the test set (amazon_2026, June 2026)
 
@@ -256,6 +256,39 @@ Amazon electronics GPT knows well, while live deals are niche, cheap or new prod
 deal posts often quote the MRP right next to the deal price. The cheap-item overestimates in
 the scatter plot are the closest match. A Frontier evaluation on Telegram products was not
 run (it would cost money and their labels are deal prices); it is the natural next check.
+
+## Cheaper GPT models
+
+The same evaluation, on exactly the same items and RAG context, with two cheaper models
+(`scripts/eval_frontier.py --model ...`). Prices per million tokens (input / output) are
+from third-party listings, since OpenAI's pricing page could not be fetched: gpt-5.1 $1.25 /
+$10, gpt-5.6-luna $0.20 / $1.20, gpt-6-luna $0.10 / $0.50.
+
+| model | test median APE | test within 20% | test median pred/actual | val median APE | val within 20% | cost of 686 calls | median seconds per call |
+|---|---|---|---|---|---|---|---|
+| gpt-5.1 (current) | 16.7% | 57.5% | 1.00 | 12.7% | 64.0% | $0.44 | |
+| gpt-5.6-luna | 18.4% | 53.0% | 0.88 | 11.3% | 64.3% | $0.063 | 0.85 |
+| gpt-6-luna | 17.8% | 53.5% | 0.90 | 11.2% | 67.7% | $0.031 | 0.92 |
+
+With the MRP in the prompt the test median APE is 14.3% (gpt-5.1), 16.5% (gpt-5.6-luna) and
+15.4% (gpt-6-luna).
+
+Paired bootstrap of mean |log error| against gpt-5.1 (positive means worse, 95% interval):
+
+| | test | test, MRP in prompt | validation |
+|---|---|---|---|
+| gpt-5.6-luna | +0.027 (-0.005 to +0.059) | +0.030 (+0.010 to +0.052) | +0.004 (-0.017 to +0.024) |
+| gpt-6-luna | +0.011 (-0.014 to +0.036) | +0.013 (-0.008 to +0.035) | -0.008 (-0.029 to +0.012) |
+
+- **gpt-6-luna is statistically indistinguishable from gpt-5.1** on both splits, at about
+  one fourteenth of the cost. It is a little better on validation and a little worse on test.
+- **gpt-5.6-luna is dominated**: worse than gpt-6-luna on every measure and twice its price,
+  and measurably worse than gpt-5.1 with the MRP in the prompt.
+- **Both Luna models estimate about 10% lower than gpt-5.1 on test** (median ratio 0.88 to
+  0.90 against 1.00), mostly in the Rs 1k to 10k band (0.80). For a deal hunter that is the
+  safe direction: a lower "normal price" means fewer false discounts, which was the live
+  complaint, at the risk of missing some real deals. Under Rs 1,000, where gpt-5.1
+  overestimates (ratio 1.18), gpt-6-luna is closer (1.07).
 
 ## Separate check: products from Telegram deal posts
 
