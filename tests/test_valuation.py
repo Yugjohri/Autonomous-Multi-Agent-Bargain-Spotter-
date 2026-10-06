@@ -184,3 +184,12 @@ def test_checks_become_the_estimate_when_gpt_fails():
     v = value_inr(price=999, similars=similars([1400, 1500, 1600]), weights=FRONTIER_ONLY)
     assert v.estimate == 1500 and v.confidence == "low"
     assert "estimate from checks only" in v.reason
+
+
+def test_search_page_deal_is_capped_at_low_confidence():
+    from agents.price_signal import Valuation, cap_for_listing
+
+    v = cap_for_listing(Valuation(1500, 691, 46.1, "medium", "GPT ₹1,500"), "https://www.flipkart.com/search?q=watches")
+    assert v.confidence == "low" and v.reason.startswith("links to a search or sale page")
+    product = cap_for_listing(Valuation(1500, 691, 46.1, "medium", "ok"), "https://www.amazon.in/dp/B0BHSWVGYB")
+    assert product.confidence == "medium"

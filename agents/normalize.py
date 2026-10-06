@@ -161,9 +161,34 @@ def asin_of(url: str) -> Optional[str]:
     match = AMAZON_ASIN.search(urlsplit(url).path + "/")
     if match:
         return match.group(1).upper()
-    query = dict(parse_qsl(urlsplit(url).query))
-    asin = query.get("asin") or query.get("ASIN")
+    # Promotion and offer pages name their product in the query (?redirectAsin=B0..., ?asin=B0...).
+    query = {k.lower(): v for k, v in parse_qsl(urlsplit(url).query)}
+    asin = query.get("asin") or query.get("redirectasin")
     return asin.upper() if asin and re.fullmatch(r"[A-Za-z0-9]{10}", asin) else None
+
+
+# Search parameters that look like tracking ("q", "sid", "keywords") but are the search itself.
+SEARCH_PARAMS = {"q", "k", "sid", "rh", "i", "keywords", "p[]", "rawquery", "node"}
+
+
+def is_search_or_listing(url: str) -> bool:
+    """
+    True for a store link that is a search, category or sale page rather than one product
+    (amazon.in/s?k=..., flipkart.com/search?q=..., myntra.com/men-watches). Short links
+    that were not resolved (dl.flipkart.com/s/..., amzn.to/...) are not judged.
+    """
+    store = detect_store(url)
+    parts = urlsplit(url)
+    path = parts.path
+    if store == "amazon_in":
+        return asin_of(url) is None
+    if store == "flipkart":
+        if parts.netloc.lower().startswith("dl.") and path.startswith("/s/"):
+            return False
+        return not (FLIPKART_ITEM.search(path) or flipkart_pid(url))
+    if store == "myntra":
+        return not re.search(r"/\d{5,}(/buy)?/?$", path)
+    return False
 
 
 def clean_url(url: str) -> str:
@@ -185,7 +210,11 @@ def clean_url(url: str) -> str:
             pid = dict(parse_qsl(parts.query)).get("pid")
             query = urlencode({"pid": pid}) if pid else ""
             return urlunsplit(("https", "www.flipkart.com", path, query, ""))
-    kept = sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=False) if not _is_tracking(k))
+    search = is_search_or_listing(url)
+    kept = sorted(
+        (k, v) for k, v in parse_qsl(parts.query, keep_blank_values=False)
+        if not _is_tracking(k) or (search and k.lower() in SEARCH_PARAMS)
+    )
     netloc = parts.netloc.lower()
     path = parts.path.rstrip("/") or "/"
     return urlunsplit(("https", netloc, path, urlencode(kept), ""))

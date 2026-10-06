@@ -84,6 +84,20 @@ def cap_for_multipack(valuation: "Valuation", text: str) -> "Valuation":
     return valuation
 
 
+def cap_for_listing(valuation: "Valuation", url: str) -> "Valuation":
+    """
+    A deal whose link is a search, category or sale page ("Upto 88% off on DANIEL KLEIN
+    watches") has no single product behind its price, so it stays visible but never above
+    low confidence, like a multipack.
+    """
+    from agents.normalize import is_search_or_listing
+
+    if is_search_or_listing(url or ""):
+        valuation.confidence = "low"
+        valuation.reason = f"links to a search or sale page, not one product; {valuation.reason}"
+    return valuation
+
+
 def _gap(a: float, b: float) -> float:
     return abs(a - b) / max(a, b)
 

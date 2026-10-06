@@ -217,3 +217,41 @@ def test_flipkart_pid_only_links_get_a_product_id():
     assert is_product_id(a) and is_product_id("amazon_in:B0CHX1W1XY") and is_product_id("flipkart:ITM71F2B7F22CCE7")
     assert not is_product_id(canonical_id("https://www.myntra.com/shoes/123/buy"))
     assert not is_product_id("amazon_in:5f46efe6e74bb907")
+
+
+# Links seen in deals surfaced during the 4-5 October 2026 live run.
+
+
+def test_flipkart_search_keeps_its_query():
+    # "q" and "sid" are tracking elsewhere, but on a search page they are the search itself.
+    url = "https://www.flipkart.com/search?q=daniel%20klein%20men%20watches&sid=r18&otracker=search&affid=abc"
+    assert clean_url(url) == "https://www.flipkart.com/search?q=daniel+klein+men+watches&sid=r18"
+    # On a product page "q" is still dropped.
+    product = "https://www.flipkart.com/lavie-sport/p/itm023c9e869ac4e?pid=BKPH9DAGWHWFYRQF&q=bag"
+    assert "q=" not in clean_url(product)
+
+
+def test_amazon_promotion_link_names_its_product():
+    url = "https://www.amazon.in/promotion/psp/ATDU98T6MTH84?redirectAsin=B0HJWB1MZ9&redirectMerchantId=A1JKS7PCNJ37WZ"
+    assert canonical_id(url) == "amazon_in:B0HJWB1MZ9"
+    assert clean_url(url) == "https://www.amazon.in/dp/B0HJWB1MZ9"
+
+
+@pytest.mark.parametrize(
+    "url, listing",
+    [
+        ("https://www.flipkart.com/search?q=watches", True),
+        ("https://www.amazon.in/s?k=WildHornLeatherSlingBag&rh=n%3A2454169031", True),
+        ("https://www.myntra.com/men-watches", True),
+        ("https://www.amazon.in/dp/B0BHSWVGYB", False),
+        ("https://www.flipkart.com/a/p/itm68af447081d84?pid=STCHEZK5TXZCBGFY", False),
+        ("https://www.myntra.com/21767158", False),
+        ("https://www.myntra.com/jeans/levis/levis-men-slim-jeans/36397439/buy", False),
+        ("https://dl.flipkart.com/s/diluqSuuuN", False),  # unresolved short link, not judged
+        ("https://www.deallooto.com/2026/10/some-deal.html", False),
+    ],
+)
+def test_search_and_listing_pages(url, listing):
+    from agents.normalize import is_search_or_listing
+
+    assert is_search_or_listing(url) is listing
