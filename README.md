@@ -33,8 +33,9 @@ flowchart LR
 1. **Sources.** The primary source is Telegram deal channels, read as your own account
    through Telethon. New posts arrive live (within seconds) through `events.NewMessage`; a
    5 minute scan covers everything else. Without a login, or for a hosted demo, the public
-   `t.me/s/<channel>` preview is used instead. RSS feeds and HTML deal listings plug in
-   through `sources.yaml`.
+   `t.me/s/<channel>` preview is used instead. The DealLooto RSS feed is a second source,
+   checked every scan. More RSS feeds and HTML deal listings plug in through `sources.yaml`,
+   once their robots.txt and terms allow it ([docs/sources.md](docs/sources.md)).
 2. **Normalize and pre-filter.** Short links (`amzn.to`, `fkrt.cc`, `bit.ly`, ...) are
    resolved hop by hop without ever loading a store page, affiliate and tracking parameters
    are stripped, and every product gets a canonical id. Regex extracts price, MRP and

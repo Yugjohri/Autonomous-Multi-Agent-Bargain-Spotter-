@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic feed with the same structure as https://www.deallooto.com/rss.xml (invented items). -->
+<rss version="2.0">
+  <channel>
+    <title>Example Loot Feed</title>
+    <link>https://www.deallooto.com/</link>
+    <description>Synthetic fixture</description>
+    <item>
+      <title>Take a look at this Example Runner V2 Sneakers For Men on Flipkart</title>
+      <link>https://www.deallooto.com/2026/10/example-runner-v2-sneakers.html</link>
+      <guid>tag:example,2026:post-1001</guid>
+      <pubDate>Tue, 06 Oct 2026 12:19:57 GMT</pubDate>
+      <description>₹ 1,281 ₹ 4,999 74% OFF Store: Flipkart Take a look at this Example Runner V2 Sneakers For Men on Flipkart</description>
+    </item>
+    <item>
+      <title>Example Liquid Wax Polish 250ml</title>
+      <link>https://www.deallooto.com/2026/10/example-liquid-wax-polish.html</link>
+      <guid>tag:example,2026:post-1002</guid>
+      <pubDate>Tue, 06 Oct 2026 12:15:06 GMT</pubDate>
+      <description>₹ 174 ₹ 507 66% OFF Store: Amazon • Restores shine on painted surfaces</description>
+    </item>
+    <item>
+      <title>Example Brand Men White Solid Regular Fit Shirt</title>
+      <link>https://www.deallooto.com/2026/10/example-white-shirt.html</link>
+      <guid>tag:example,2026:post-1003</guid>
+      <pubDate>Tue, 06 Oct 2026 12:10:00 GMT</pubDate>
+      <description>₹ 200 90% OFF Store: Myntra Clothing</description>
+    </item>
+    <item>
+      <title>Example Bank: GET UP TO ₹50 BACK on adding your card</title>
+      <link>https://www.deallooto.com/2026/10/example-bank-cashback.html</link>
+      <guid>tag:example,2026:post-1004</guid>
+      <pubDate>Tue, 06 Oct 2026 12:05:00 GMT</pubDate>
+      <description>₹ 50 ₹ 0 Store: Amazon Add a card and get cashback</description>
+    </item>
+    <item>
+      <title>Up to 70% Off on Example Handbags</title>
+      <link>https://www.deallooto.com/2026/10/example-handbags-sale.html</link>
+      <guid>tag:example,2026:post-1005</guid>
+      <pubDate>Tue, 06 Oct 2026 12:00:00 GMT</pubDate>
+      <description>Store: Myntra Up to 70% off, prices from ₹447</description>
+    </item>
+    <item>
+      <title>EXAMPLE COLLECTION Women Casual Kurta - Buy EXAMPLE COLLECTION Women Casual Kurta Online</title>
+      <link>https://www.deallooto.com/2026/10/example-women-kurta.html</link>
+      <guid>tag:example,2026:post-1006</guid>
+      <pubDate>Tue, 06 Oct 2026 11:55:00 GMT</pubDate>
+      <description>₹ 165 ₹ 999 83% OFF Store: Shopsy Great prices every day</description>
+    </item>
+  </channel>
+</rss>

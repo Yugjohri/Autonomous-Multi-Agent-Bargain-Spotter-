@@ -11,6 +11,7 @@ enabling anything, because sites change their rules.
 | --- | --- | --- |
 | Telegram channels via MTProto (your account) | Enabled by default | Primary source. Read-only, needs your one-time login. |
 | Telegram public preview (`t.me/s/<channel>`) | Automatic fallback | No login; username channels only. Use `public_only: true` for hosted demos. |
+| DealLooto RSS (`/rss.xml`) | **Enabled** (since 6 October 2026) | robots.txt allows it and the site publishes no terms of use. Ask before using it in a public demo. |
 | DealsMagnet RSS (`/feed`) | Implemented, **disabled** | robots.txt allows `/feed`, but the Terms of Service forbid automated access without written permission. |
 | DesiDime listing (`/new`) | **Disabled**, not implemented | robots.txt allows `/new`, but the Terms of Use forbid automated download of data. |
 | Buyhatke | **Disabled**, not implemented | No compliant way to read price history (it lives behind the disallowed `/api/`). |
@@ -73,6 +74,44 @@ robots.txt of each redirect host is respected:
 Affiliate and tracking parameters (`tag`, `linkCode`, `ascsubtag`, `affid`, `affExtParam*`,
 `utm_*`, `otracker*`, ...) are stripped, so alerts push clean store links, never a channel
 owner's affiliate link.
+
+## DealLooto: `https://www.deallooto.com/rss.xml`
+
+Checked on 6 October 2026, after the Telegram-only setup ran live for a day.
+
+- Valid RSS 2.0 (a Blogger site): 25 items covering about the last 30 minutes, each with a
+  publish time. No ETag or Last-Modified, so every poll downloads the feed (one request per
+  scan).
+- Each item description starts with a fixed header, `₹ 1,281 ₹ 4,999 74% OFF Store: Flipkart`,
+  then a short description. The MRP and percentage are sometimes missing. In one sample,
+  20 of 25 items were single products with a price and MRP; the other 5 were bank cashback
+  offers, coin-back tricks, a brand-wide sale and a buy-one-get-one, which
+  `DealLootoSource` marks not priceable (`offer_not_product`).
+- Item links point to the DealLooto deal page. The store link is not in the feed, so
+  alerts link to the deal page and DealLooto items cannot be matched to the same product
+  from Telegram by product id. The store comes from the header; Shopsy items are dropped as
+  an unknown store.
+- robots.txt: `User-agent: *`, `Allow: /`, `Disallow: /search?` and `/admin`.
+- Terms: the site links no terms of use, privacy policy or disclaimer, and none of `/terms`,
+  `/terms-of-service`, `/terms-and-conditions`, `/tos`, `/privacy`, `/privacy-policy`,
+  `/disclaimer` or `/about` exists (all 404). Nothing forbids automated reading, but nothing
+  grants it either.
+- Decision: **enabled** for personal use, at one feed request per scan. Before the feed is
+  used in a public demo, ask DealLooto.
+- Tests use a synthetic feed with the same structure (`tests/fixtures/rss/deallooto_like.xml`);
+  no DealLooto content is stored in the repo.
+
+## Other Indian deal sites checked for feeds (6 October 2026)
+
+| Site | Feed | robots.txt | Terms | Decision |
+| --- | --- | --- | --- | --- |
+| SaveMoneyIndia (`/feed`) | live, 20 items | allows | no clause on automated access | Not added: mostly sale announcements ("Gadget Fest - Flipkart"), not single products |
+| Bigtricks (`/feed`) | live, 10 items | allows `/feed` | "personal, non-commercial transitory viewing only", no public display | Not added: mostly referral codes; terms rule out a public demo |
+| Bigloot (`/feed`) | last item November 2025 | allows | not checked | Not added: inactive |
+| TrickXpert (`/feed`) | last item July 2020 | allows | not checked | Not added: inactive (its Telegram channel is the live part) |
+| OfferTag | | disallows `/feed` and `/rss` | | Not added |
+| IndiaFreeStuff, FreeKaaMaal, DealsHeaven, IndiaDesire | none at `/feed`, `/rss`, `/rss.xml` or advertised in the page | | | No feed |
+| LootDeal.in | | | | Redirects to an unrelated, unresolvable domain; not used |
 
 ## DealsMagnet: `https://www.dealsmagnet.com/feed`
 

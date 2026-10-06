@@ -57,7 +57,7 @@ def build_telegram_source(config: Dict[str, Any], http: HttpClient) -> Optional[
 
 
 def build_rss_sources(config: Dict[str, Any], http: HttpClient) -> List[DealSource]:
-    from agents.sources.rss import DealsMagnetSource, RSSSource
+    from agents.sources.rss import DealLootoSource, DealsMagnetSource, RSSSource
 
     sources: List[DealSource] = []
     cache = DiskCache("feeds", ttl_seconds=24 * 3600) if not http.offline else None
@@ -67,7 +67,9 @@ def build_rss_sources(config: Dict[str, Any], http: HttpClient) -> List[DealSour
         if feed.get("name") == "legacy_us":
             # The US DealNews feeds are read by the legacy pipeline (PRICER_MODE=usd_legacy).
             continue
-        if feed.get("kind") == "dealsmagnet" or feed.get("name") == "dealsmagnet":
+        if feed.get("kind") == "deallooto" or feed.get("name") == "deallooto":
+            sources.append(DealLootoSource(http, url=feed.get("url", "https://www.deallooto.com/rss.xml"), cache=cache))
+        elif feed.get("kind") == "dealsmagnet" or feed.get("name") == "dealsmagnet":
             sources.append(DealsMagnetSource(http, url=feed.get("url", "https://www.dealsmagnet.com/feed"), cache=cache))
         else:
             sources.append(
