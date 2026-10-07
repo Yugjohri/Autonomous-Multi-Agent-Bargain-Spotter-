@@ -40,6 +40,15 @@ telegram:
 
 # Generic RSS / Atom feeds.
 rss:
+  - name: deallooto
+    url: https://www.deallooto.com/rss.xml
+    # Checked 6 October 2026: robots.txt allows everything except /search? and /admin, and
+    # the site publishes no terms of use. About 25 new deals every 30 minutes, each with
+    # price, MRP, percent off and store. Items link to the DealLooto deal page (the store
+    # link is not in the feed). Before using it in a public demo, ask DealLooto. See
+    # docs/sources.md.
+    enabled: true
+    currency: INR
   - name: dealsmagnet
     url: https://www.dealsmagnet.com/feed
     # DISABLED: robots.txt allows /feed, but the DealsMagnet Terms of Service (/ToS) say you

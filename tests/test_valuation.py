@@ -168,3 +168,28 @@ def test_populate_reads_indian_csv_formats(tmp_path):
     rows = list(items_from_csv(a)) + list(items_from_csv(b))
     assert [(r.document[:12], r.price, r.mrp) for r in rows] == [("Cricket Net ", 1615, 4000), ("Samsung Gala", 9999, 10999)]
     assert rows[1].canonical_id == "amazon_in:B0FN7QTRPY" and rows[1].category == "Mobiles"
+
+
+FRONTIER_ONLY = {"frontier": 1.0, "market": 0.0, "mrp": 0.0, "neural_network": 0.0}
+
+
+def test_zero_weight_signals_still_check_confidence():
+    v = value_inr(price=1099, mrp=4490, llm_estimate=1799, similars=similars([1650, 1700, 1800]), weights=FRONTIER_ONLY)
+    assert v.estimate == 1799
+    assert v.confidence == "high" and "GPT and market agree" in v.reason
+    assert set(v.signals) == {"frontier", "market", "mrp"}
+
+
+def test_checks_become_the_estimate_when_gpt_fails():
+    v = value_inr(price=999, similars=similars([1400, 1500, 1600]), weights=FRONTIER_ONLY)
+    assert v.estimate == 1500 and v.confidence == "low"
+    assert "estimate from checks only" in v.reason
+
+
+def test_search_page_deal_is_capped_at_low_confidence():
+    from agents.price_signal import Valuation, cap_for_listing
+
+    v = cap_for_listing(Valuation(1500, 691, 46.1, "medium", "GPT ₹1,500"), "https://www.flipkart.com/search?q=watches")
+    assert v.confidence == "low" and v.reason.startswith("links to a search or sale page")
+    product = cap_for_listing(Valuation(1500, 691, 46.1, "medium", "ok"), "https://www.amazon.in/dp/B0BHSWVGYB")
+    assert product.confidence == "medium"

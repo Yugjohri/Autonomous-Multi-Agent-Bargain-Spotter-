@@ -39,3 +39,6 @@ memory.json
 
 # Working notes and prompts (not part of the project)
 CLAUDE_CODE_PROMPT_*.md
+
+# Trained models and weights (rebuild with scripts/train_nn_inr.py)
+models/

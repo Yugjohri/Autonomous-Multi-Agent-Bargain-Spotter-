@@ -9,6 +9,11 @@ INR "products_inr" collection (PRICER_MODE=inr), from data we collected ourselve
     python populate_vectorstore.py --currency INR --from-observations
     python populate_vectorstore.py --currency INR --from-raw data/raw
 
+Rebuild from the training split only, keeping live Telegram items, with no validation or
+test product anywhere in the store (what the INR models were evaluated with):
+    python populate_vectorstore.py --currency INR --reset --from-split data/processed/train.parquet \
+        --keep-source telegram: --holdout data/processed/val.parquet data/processed/test.parquet
+
 --from-raw reads local CSV files of Indian product listings (Amazon.in, Flipkart, ...).
 Columns are detected by name (title / price / MRP / URL / ASIN / timestamp), prices may
 be written with the rupee sign and commas or as plain numbers, and rows marked with a currency other than INR are
@@ -187,16 +192,81 @@ def items_from_observations(path: Path):
             )
 
 
+def items_from_split(path: Path):
+    """Rows of a training split written by scripts/prepare_data.py and scripts/make_splits.py."""
+    import pandas as pd
+
+    from agents.inr_store import InrItem
+
+    for row in pd.read_parquet(path).to_dict("records"):
+        mrp = row.get("mrp_inr")
+        yield InrItem(
+            document=row["text"][:400],
+            price=float(row["price_inr"]),
+            canonical_id=row["product_key"] if not str(row["product_key"]).startswith("title:") else "",
+            mrp=float(mrp) if mrp and mrp == mrp else None,
+            store=row.get("store") or "other",
+            category=row.get("category") or "other",
+            seen_at=row.get("scraped_at"),
+            source=f"split:{path.stem}/{row['source_dataset']}",
+        )
+
+
+def holdout_keys(paths: Iterable[str]):
+    """Product ids and normalised titles of held-out products, which must stay out of the store."""
+    import pandas as pd
+
+    ids, titles = set(), set()
+    for path in paths:
+        df = pd.read_parquet(path)
+        ids.update(df["product_key"])
+        for alt in df["alt_ids"].fillna(""):
+            ids.update(i for i in alt.split(";") if i)
+        titles.update(df["norm_title"])
+    return ids, titles
+
+
+def kept_rows(store, prefixes: List[str], holdout) -> list:
+    """Existing rows whose source starts with one of the prefixes, with their embeddings."""
+    from agents.titles import normalise_title
+
+    if not prefixes:
+        return []
+    found = store.collection.get(include=["documents", "metadatas", "embeddings"])
+    ids, titles = holdout
+    rows, dropped = [], 0
+    for row_id, doc, meta, vector in zip(found["ids"], found["documents"], found["metadatas"], found["embeddings"]):
+        if not any(str(meta.get("source", "")).startswith(p) for p in prefixes):
+            continue
+        if meta.get("canonical_id") in ids or normalise_title(doc.split("\n")[0]) in titles:
+            dropped += 1
+            continue
+        rows.append((row_id, doc, meta, list(vector)))
+    logging.info(f"Keeping {len(rows)} existing rows with source {prefixes} ({dropped} held-out products dropped)")
+    return rows
+
+
 def populate_inr(args) -> None:
     from agents.inr_store import COLLECTION, InrProductStore
+    from agents.titles import normalise_title
 
     store = InrProductStore(path=DealAgentFramework.DB)
+    holdout = holdout_keys(args.holdout or [])
+    kept = kept_rows(store, args.keep_source or [], holdout)
     if args.reset:
         store.collection._client.delete_collection(COLLECTION)
         store = InrProductStore(path=DealAgentFramework.DB)
         logging.info(f"Deleted existing {COLLECTION} collection")
+    for start in range(0, len(kept), BATCH):
+        chunk = kept[start : start + BATCH]
+        store.collection.upsert(ids=[r[0] for r in chunk], documents=[r[1] for r in chunk],
+                                metadatas=[r[2] for r in chunk], embeddings=[r[3] for r in chunk])
+    if kept:
+        logging.info(f"Restored {len(kept)} kept rows")
 
     batches: List = []
+    for path in args.from_split or []:
+        batches.append((path, list(items_from_split(Path(path)))))
     if args.from_memory:
         batches.append(("memory.json", list(items_from_memory())))
     if args.from_observations:
@@ -209,9 +279,16 @@ def populate_inr(args) -> None:
                 continue
             batches.append((str(path), list(items_from_csv(path))))
 
+    ids, titles = holdout
     for name, items in batches:
         if args.limit:
             items = items[: args.limit]
+        if ids or titles:
+            before = len(items)
+            items = [i for i in items if i.canonical_id not in ids
+                     and normalise_title(i.document.split("\n")[0].split(" | ")[0]) not in titles]
+            if before != len(items):
+                logging.info(f"{name}: dropped {before - len(items)} held-out products")
         added = store.add(items)
         logging.info(f"{name}: added {added} INR items")
     logging.info(f"Done. {COLLECTION} now holds {store.count()} items.")
@@ -232,6 +309,12 @@ def main():
         "--exclude", nargs="*", metavar="FOLDER",
         help="INR --from-raw: subfolders to skip, e.g. a held-out test set (amazon_2026)",
     )
+    parser.add_argument("--from-split", nargs="*", metavar="PARQUET",
+                        help="INR: training split(s) from scripts/make_splits.py, e.g. data/processed/train.parquet")
+    parser.add_argument("--keep-source", nargs="*", metavar="PREFIX",
+                        help="INR --reset: keep existing rows whose source starts with this, e.g. telegram:")
+    parser.add_argument("--holdout", nargs="*", metavar="PARQUET",
+                        help="INR: never add (or keep) products from these splits, e.g. val and test")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -241,8 +324,9 @@ def main():
             parser.error("--dataset is required for --currency USD")
         populate_usd(args)
     else:
-        if not (args.from_memory or args.from_observations or args.from_raw):
-            parser.error("--currency INR needs --from-memory, --from-observations and/or --from-raw")
+        if not (args.from_memory or args.from_observations or args.from_raw or args.from_split or args.keep_source):
+            parser.error("--currency INR needs --from-memory, --from-observations, --from-raw, --from-split "
+                         "and/or --keep-source")
         populate_inr(args)
 
 

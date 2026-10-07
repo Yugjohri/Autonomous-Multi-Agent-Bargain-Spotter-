@@ -5,7 +5,7 @@ from agents.config import get, load_settings
 from agents.deals import Deal
 from agents.inr_store import InrItem, InrProductStore
 from agents.money import format_money
-from agents.price_signal import Valuation, cap_for_multipack, value_inr
+from agents.price_signal import Valuation, cap_for_listing, cap_for_multipack, value_inr
 
 LEGACY_WEIGHTS = {"frontier": 0.8, "specialist": 0.1, "neural_network": 0.1}
 
@@ -16,7 +16,9 @@ class EnsembleAgent(Agent):
 
     inr         the Frontier Agent estimates the typical Indian selling price in INR with RAG
                 over products_inr, and the price-signal module blends it with the market median
-                and the MRP. The USD-trained Specialist and Neural Network are never used here.
+                and the MRP. When ensemble.inr gives neural_network a weight, the INR network
+                (models/nn_inr.pth, trained by scripts/train_nn_inr.py) adds its own estimate.
+                The USD-trained Specialist and Neural Network are never used here.
     usd_legacy  the original blend of Specialist (fine-tuned Llama on Modal), Frontier
                 (GPT + RAG over the USD "products" collection) and the local Neural Network.
 
@@ -27,7 +29,7 @@ class EnsembleAgent(Agent):
     color = Agent.YELLOW
 
     def __init__(self, collection=None, settings: Optional[dict] = None, inr_store: Optional[InrProductStore] = None,
-                 frontier=None, offline: bool = False):
+                 frontier=None, offline: bool = False, inr_model=None, specialist=None):
         """
         Create an instance of Ensemble, by creating each of the models
         And loading the weights of the Ensemble
@@ -45,7 +47,7 @@ class EnsembleAgent(Agent):
             self.weights: Dict[str, float] = {**LEGACY_WEIGHTS, **(get(self.settings, "ensemble.usd_legacy", {}) or {})}
             self.specialist = SpecialistAgent()
             self.frontier = FrontierAgent(collection)
-            self.neural_network = NeuralNetworkAgent()
+            self.neural_network = NeuralNetworkAgent("usd_legacy")
             self.preprocessor = Preprocessor()
         else:
             self.weights = dict(get(self.settings, "ensemble.inr", {}) or {})
@@ -55,7 +57,43 @@ class EnsembleAgent(Agent):
                 from agents.frontier_agent import FrontierAgent
 
                 self.frontier = FrontierAgent(model=get(self.settings, "models.frontier", "gpt-5.1"))
+            self.inr_model = inr_model
+            if self.inr_model is None and self.weights.get("neural_network", 0) > 0:
+                self.inr_model = self._load_inr_model()
+            self.inr_specialist = specialist
+            if self.inr_specialist is None and self.weights.get("specialist", 0) > 0:
+                self.inr_specialist = self._load_specialist()
         self.log(f"Ensemble Agent is ready ({self.mode} mode)")
+
+    def _load_specialist(self):
+        """The fine-tuned INR Specialist is optional: without its adapter or a GPU it is skipped."""
+        from pathlib import Path
+
+        from agents.specialist_inr_agent import ADAPTER, SpecialistInrAgent
+
+        if not Path(ADAPTER, "adapter_config.json").exists():
+            self.log(f"No {ADAPTER}; valuing without the INR Specialist (scripts/train_specialist_inr.py builds it)")
+            return None
+        try:
+            return SpecialistInrAgent()
+        except Exception as exc:  # noqa: BLE001 - a missing GPU or library should not stop the app
+            self.log(f"Could not load the INR Specialist ({exc}); valuing without it")
+            return None
+
+    def _load_inr_model(self):
+        """The trained INR network is optional: without models/nn_inr.pth the signal is skipped."""
+        from pathlib import Path
+
+        from agents.neural_network_agent import INR_WEIGHTS, NeuralNetworkAgent
+
+        if not Path(INR_WEIGHTS).exists():
+            self.log(f"No {INR_WEIGHTS}; valuing without the INR neural network (scripts/train_nn_inr.py builds it)")
+            return None
+        try:
+            return NeuralNetworkAgent("inr")
+        except Exception as exc:  # noqa: BLE001 - a broken model file should not stop the app
+            self.log(f"Could not load the INR neural network ({exc}); valuing without it")
+            return None
 
     # ------------------------------------------------------------------ legacy
 
@@ -102,18 +140,34 @@ class EnsembleAgent(Agent):
                 llm_estimate = self.frontier.estimate_inr(text, similars[:5])
             except Exception as exc:  # noqa: BLE001 - one failed call should not lose the deal
                 self.log(f"Frontier Agent failed ({exc}); valuing without it")
+        specialist_estimate = None
+        if self.inr_specialist is not None:
+            try:
+                specialist_estimate = self.inr_specialist.price(text)
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"INR Specialist failed ({exc}); valuing without it")
+        nn_estimate = None
+        if self.inr_model is not None:
+            try:
+                nn_estimate = self.inr_model.price(text, deal.category)
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"INR neural network failed ({exc}); valuing without it")
         valuation = value_inr(
             price=deal.price,
             mrp=deal.mrp,
             llm_estimate=llm_estimate,
             similars=similars,
-            weights={k: self.weights[k] for k in ("frontier", "market", "mrp") if k in self.weights},
+            weights={k: self.weights[k] for k in ("frontier", "market", "mrp", "neural_network", "specialist")
+                     if k in self.weights},
             mrp_factor=float(self.weights.get("mrp_factor", 0.75)),
             market_max_distance=float(self.weights.get("market_max_distance", 0.45)),
             market_min_items=int(self.weights.get("market_min_items", 3)),
             sources_count=len(deal.seen_in) or 1,
+            nn_estimate=nn_estimate,
+            specialist_estimate=specialist_estimate,
         )
         valuation = cap_for_multipack(valuation, text)
+        valuation = cap_for_listing(valuation, deal.url)
         direction = "below" if valuation.discount_pct >= 0 else "above"
         self.log(
             f"Ensemble Agent valued {format_money(deal.price)} deal at {format_money(valuation.estimate)} "

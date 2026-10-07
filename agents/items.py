@@ -6,6 +6,19 @@ from typing import Optional, Self
 PREFIX = "Price is $"
 QUESTION = "What does this cost to the nearest dollar?"
 
+# The INR specialist (scripts/train_specialist_inr.py) answers in whole rupees.
+INR_PREFIX = "Price is Rs."
+INR_QUESTION = "What does this cost in India, in rupees?"
+
+
+def inr_prompt(text: str) -> str:
+    """The prompt the INR specialist is trained and queried with; the answer follows it."""
+    return f"{INR_QUESTION}\n\n{text.strip()}\n\n{INR_PREFIX}"
+
+
+def inr_completion(price: float) -> str:
+    return f" {round(price)}"
+
 
 class Item(BaseModel):
     """

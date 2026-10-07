@@ -21,7 +21,7 @@ flowchart LR
     Sources --> N["Normalize<br/>resolve short links, strip affiliate tags,<br/>canonical id: amazon_in:ASIN / flipkart:ITM..."]
     N --> F["Pre-filter<br/>priced, known store, fresh, unseen,<br/>deduped across channels"]
     F -->|"30 candidates max"| S["Scanner Agent<br/>gpt-5-mini picks the best 5,<br/>payable INR price, conditions"]
-    S --> E["Ensemble Agent<br/>Frontier (gpt-5.1, INR RAG)<br/>+ market median + MRP"]
+    S --> E["Ensemble Agent<br/>Frontier (gpt-6-luna, INR RAG)<br/>+ market median + MRP"]
     E --> P["Planning Agent<br/>≥ ₹500 and ≥ 20% off,<br/>top 3, category cooldown"]
     P --> M["Messaging Agent<br/>Pushover, Telegram bot"]
     P --> UI["Gradio UI<br/>deals table, live log, 3D product map"]
@@ -33,8 +33,9 @@ flowchart LR
 1. **Sources.** The primary source is Telegram deal channels, read as your own account
    through Telethon. New posts arrive live (within seconds) through `events.NewMessage`; a
    5 minute scan covers everything else. Without a login, or for a hosted demo, the public
-   `t.me/s/<channel>` preview is used instead. RSS feeds and HTML deal listings plug in
-   through `sources.yaml`.
+   `t.me/s/<channel>` preview is used instead. The DealLooto RSS feed is a second source,
+   checked every scan. More RSS feeds and HTML deal listings plug in through `sources.yaml`,
+   once their robots.txt and terms allow it ([docs/sources.md](docs/sources.md)).
 2. **Normalize and pre-filter.** Short links (`amzn.to`, `fkrt.cc`, `bit.ly`, ...) are
    resolved hop by hop without ever loading a store page, affiliate and tracking parameters
    are stripped, and every product gets a canonical id. Regex extracts price, MRP and
@@ -44,12 +45,12 @@ flowchart LR
 3. **Scanner Agent.** gpt-5-mini sees at most 30 candidates and picks the best five. It
    resolves only what regex cannot: the payable price versus conditional bank, exchange or
    cashback offers (kept in a coupon note), a clean description, category and brand.
-4. **Ensemble Agent.** Values each deal from three signals with weights from
-   `settings.yaml`: the Frontier Agent (gpt-5.1 asked for the typical selling price in India,
-   with similar INR products from the `products_inr` Chroma store as context), the median
-   price of close neighbours in that store, and the MRP scaled down because Indian MRPs are
-   often inflated. Confidence (low, medium, high) depends on how many signals exist and
-   whether they agree, and comes with a one-line reason.
+4. **Ensemble Agent.** Values each deal with the Frontier Agent (gpt-6-luna asked for the
+   typical selling price in India, with similar INR products from the `products_inr` Chroma
+   store as context), checked against the median price of close neighbours in that store and
+   the MRP scaled down because Indian MRPs are often inflated. Weights are in `settings.yaml`
+   (fitted on held-out data: GPT alone for the estimate). Confidence (low, medium, high)
+   depends on how many signals exist and whether they agree, and comes with a one-line reason.
 5. **Planning Agent.** Keeps deals at least ₹500 and 20% below their estimate, surfaces the
    top three per run with one per category and a category cooldown, and alerts the ones with
    at least medium confidence.
@@ -184,11 +185,59 @@ wrong in ways that matter for a deal alert:
   real ones.
 
 So valuation in INR mode uses Indian evidence only: an LLM asked for the typical Indian
-selling price, nearest neighbours from a store of real INR listings that grows with every
-scan, and a discounted MRP as a weak prior, with a confidence label that says when the
-evidence is thin. The USD-trained models are kept behind `PRICER_MODE=usd_legacy` rather
-than fed into INR valuations, and `data/observations.jsonl` collects the INR data to train
-India-specific models later.
+selling price with similar INR listings as context, checked against nearest neighbours from
+a store of real INR listings that grows with every scan and against a discounted MRP, with a
+confidence label that says when the evidence is thin. The USD-trained models are kept behind
+`PRICER_MODE=usd_legacy` rather than fed into INR valuations.
+
+INR models were then trained and evaluated on public Indian datasets, with a test set
+scraped eight months after the training data. GPT with retrieval was clearly the best
+estimator (within 20% for 57.5% of test items), the retrained neural network did not beat a
+TF-IDF + Ridge baseline, and blending in the market median and MRP made estimates worse, so
+the weights in `settings.yaml` now use GPT alone for the estimate and the other signals only
+for confidence. The full write-up, including what is weak, is in
+[docs/training_report.md](docs/training_report.md) and [docs/data_report.md](docs/data_report.md).
+
+## Reproduce the training
+
+1. Download the datasets (needs a Kaggle account; credentials come from `KAGGLE_USERNAME`
+   and `KAGGLE_KEY` or `~/.kaggle/kaggle.json`, never from this repo). Folders that already
+   exist in `data/raw/` are skipped:
+   ```
+   uv sync --all-groups
+   uv run python scripts/download_data.py
+   ```
+2. Check the GPU (PyTorch comes from the CUDA 13.0 index on Windows and Linux):
+   `uv run python scripts/check_gpu.py`
+3. Clean, split, rebuild the INR store from the train split, evaluate and train:
+   ```
+   uv run python scripts/prepare_data.py
+   uv run python scripts/make_splits.py
+   uv run python populate_vectorstore.py --currency INR --reset --from-split data/processed/train.parquet \
+       --keep-source telegram: --holdout data/processed/val.parquet data/processed/test.parquet
+   uv run python scripts/run_baselines.py
+   uv run python scripts/eval_frontier.py
+   uv run python scripts/train_nn_inr.py
+   uv run python scripts/fit_ensemble.py
+   uv run python scripts/evaluate_inr.py
+   ```
+
+Every script takes `--help`. `prepare_data.py` and `eval_frontier.py` call OpenAI (about
+$0.06 and $0.45, cached, with a spend cap); `train_nn_inr.py` writes its progress to
+`models/nn_inr_progress.txt`. `data/` and `models/` are gitignored.
+
+## Data and licences
+
+The INR models were trained and evaluated on these Kaggle datasets. Thanks to their authors.
+
+| Dataset | Author (Kaggle user) | Licence | Used for |
+|---|---|---|---|
+| [Amazon Electronics and Accessories 2025](https://www.kaggle.com/datasets/prothomeshmistry/amazon-electronics-and-accessories-2025) | prothomeshmistry | MIT | training and validation |
+| [Flipkart Electronics Product Dataset 2025](https://www.kaggle.com/datasets/priyankamalavade/flipkart-electronics-product-dataset2025) | priyankamalavade | MIT | training and validation |
+| [Flipkart Product Dataset](https://www.kaggle.com/datasets/priyankkhanna/flipkart-product-dataset-by-priyank-khanna) | priyankkhanna (Priyank Khanna) | CC BY 4.0 | training and validation (fashion, footwear and home rows) |
+| [Amazon India Electronics Dataset 2026](https://www.kaggle.com/datasets/kulkarniparth09/amazon-india-electronics-dataset-2026) | kulkarniparth09 | Apache 2.0 | test set only |
+
+The raw files are not redistributed here; `scripts/download_data.py` fetches them.
 
 ## Legal and ethical notes
 
@@ -220,7 +269,9 @@ with `populate_vectorstore.py --dataset <hf-user>/<dataset>`.
 - `agents/autonomous_planning_agent.py`: a planner where GPT drives the workflow itself
   through tool calls (scan, estimate in INR, notify), referring to deals by number, and
   Claude writes the alert.
-- `agents/evaluator.py`: a harness that scores a price predictor against labelled items.
+- `agents/evaluator.py`: a harness that scores a USD price predictor against labelled items;
+  `agents/evaluator_inr.py` is the INR version (percent errors, category and price band
+  breakdowns, scatter plots).
 - `MultiAgent.ipynb` and `results.ipynb`: UI prototypes and a model comparison chart
   (`uv sync --group notebooks`).
 
@@ -239,7 +290,11 @@ agents/
   ensemble_agent.py PRICER_MODE switch
   planning_agent.py thresholds, top N, cooldowns
   messaging_agent.py Pushover and Telegram bot alerts
-scripts/            telegram_login, list_channels, backfill_telegram, build_labels
+  taxonomy.py       training categories (separate from the app's), with a mapping
+  deep_neural_network.py  residual MLP; INR inference driven by models/nn_inr_meta.json
+scripts/            telegram_login, list_channels, backfill_telegram, build_labels,
+                    and the training pipeline (download_data ... evaluate_inr)
 tests/              offline tests and fixtures (real Telegram posts and previews)
 docs/sources.md     what each source allows, verified
+docs/data_report.md, docs/training_report.md   the INR datasets and model evaluation
 ```

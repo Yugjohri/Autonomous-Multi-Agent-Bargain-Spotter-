@@ -24,6 +24,10 @@ from agents.sources.telegram_parser import parse_post
         ("Redmi 13C 5G (4GB RAM, 128GB)", False),
         ("Parachute Shampoo 1.2L", False),
         ("Pack of 1 Sandisk 64GB pendrive", False),
+        ("Nivea Body Lotion 2x400ml", True),
+        ("LG 24U631A, 24-inch, IPS, QHD 2560x1440, 100Hz", False),
+        ("LG 126 cm (50 inches) UA82 4K Ultra HD (3840 x 2160) Smart webOS LED TV", False),
+        ("XPPen Deco 640 Drawing Pen Tablet 6x4 inches", False),
     ],
 )
 def test_multipack_detection(text, multi):
