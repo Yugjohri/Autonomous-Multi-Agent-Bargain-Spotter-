@@ -12,3 +12,30 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Model checkpoints
+*.pth
+
+# Local data (rebuild with populate_vectorstore.py)
+products_vectorstore/
+
+# Telegram credentials and sessions (never commit)
+secrets/
+*.session
+*.session-journal
+
+# Private channel list (loaded on top of sources.yaml)
+sources.local.yaml
+
+# Collected observations, raw datasets and runtime state
+data/
+
+# Caches
+.cache/
+.pytest_cache/
+
+# Deals surfaced by your own runs (personal history)
+memory.json
+
+# Working notes and prompts (not part of the project)
+CLAUDE_CODE_PROMPT_*.md

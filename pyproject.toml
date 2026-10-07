@@ -1,0 +1,40 @@
+[project]
+name = "price-is-right"
+version = "0.1.0"
+description = "Autonomous multi-agent framework that hunts for online bargains."
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.14.2",
+    "chromadb>=1.1.0",
+    "datasets>=5.0.1",
+    "feedparser>=6.0.12",
+    "gradio>=5.47.2,<6.0",
+    "litellm>=1.77.5",
+    "modal>=1.1.4",
+    "numpy>=2.3.3",
+    "openai>=1.109.1",
+    "pandas>=2.3.3",
+    "plotly>=6.3.0",
+    "pydantic>=2.9.0",
+    "python-dotenv>=1.1.1",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "scikit-learn>=1.7.2",
+    "sentence-transformers>=5.1.1",
+    "telethon>=1.45.0",
+    "torch>=2.8.0",
+    "tqdm>=4.67.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+notebooks = [
+    "ipywidgets>=8.1.9",
+    "jupyter>=1.1.1",
+]

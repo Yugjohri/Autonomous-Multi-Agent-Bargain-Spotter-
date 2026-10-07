@@ -1,28 +1,44 @@
+from datetime import datetime, timezone
 from typing import Optional, List, Dict
 from agents.agent import Agent
+from agents.config import load_settings
 from agents.deals import Deal, Opportunity
+from agents.money import format_money
 from agents.scanner_agent import ScannerAgent
 from agents.ensemble_agent import EnsembleAgent
 from agents.messaging_agent import MessagingAgent
-from openai import OpenAI
 import json
 
 
 class AutonomousPlanningAgent(Agent):
+    """
+    A tool-calling variant of the Planning Agent: GPT drives the workflow itself by
+    calling tools to scan, value and notify, and Claude writes the alert text.
+    Deals are referred to by number, so the model never has to copy prices or URLs.
+    """
+
     name = "Autonomous Planning Agent"
     color = Agent.GREEN
     MODEL = "gpt-5.1"
 
-    def __init__(self, collection):
+    def __init__(self, collection=None, settings: Optional[dict] = None, scanner=None, ensemble=None,
+                 messenger=None, client=None, dry_run: bool = False):
         """
         Create instances of the 3 Agents that this planner coordinates across
         """
         self.log("Autonomous Planning Agent is initializing")
-        self.scanner = ScannerAgent()
-        self.ensemble = EnsembleAgent(collection)
-        self.messenger = MessagingAgent()
-        self.openai = OpenAI()
+        self.settings = settings if settings is not None else load_settings()
+        self.scanner = scanner or ScannerAgent(settings=self.settings)
+        self.ensemble = ensemble or EnsembleAgent(collection, settings=self.settings)
+        self.messenger = messenger or MessagingAgent(settings=self.settings, dry_run=dry_run)
+        if client is None:
+            from openai import OpenAI
+
+            client = OpenAI()
+        self.openai = client
         self.memory = None
+        self.deals: List[Deal] = []
+        self.valuations: Dict[int, object] = {}
         self.opportunity = None
         self.log("Autonomous Planning Agent is ready")
 
@@ -32,37 +48,66 @@ class AutonomousPlanningAgent(Agent):
         """
         self.log("Autonomous Planning agent is calling scanner")
         results = self.scanner.scan(memory=self.memory)
-        return results.model_dump_json() if results else "No deals found"
+        self.deals = list(results.deals) if results else []
+        if not self.deals:
+            return "No deals found"
+        listing = [
+            {
+                "deal_number": i,
+                "title": d.title,
+                "description": d.product_description,
+                "price": format_money(d.price, d.currency),
+                "mrp": format_money(d.mrp, d.currency) if d.mrp else None,
+                "store": d.store,
+                "conditions": d.coupon_note,
+            }
+            for i, d in enumerate(self.deals)
+        ]
+        return json.dumps(listing, ensure_ascii=False)
 
-    def estimate_true_value(self, description: str) -> str:
+    def estimate_true_value(self, deal_number: int) -> str:
         """
         Run the tool to estimate true value
         """
+        if not 0 <= deal_number < len(self.deals):
+            return "Unknown deal_number"
         self.log("Autonomous Planning agent is estimating value via Ensemble Agent")
-        estimate = self.ensemble.price(description)
-        return f"The estimated true value of {description} is {estimate}"
+        deal = self.deals[deal_number]
+        valuation = self.ensemble.value(deal)
+        self.valuations[deal_number] = valuation
+        return (
+            f"Deal {deal_number}: offered at {format_money(deal.price, deal.currency)}, estimated typical price "
+            f"{format_money(valuation.estimate, deal.currency)}, {valuation.discount_pct:.0f}% below, "
+            f"{valuation.confidence} confidence ({valuation.reason})"
+        )
 
-    def notify_user_of_deal(
-        self, description: str, deal_price: float, estimated_true_value: float, url: str
-    ) -> Dict:
+    def notify_user_of_deal(self, deal_number: int) -> str:
         """
         Run the tool to notify the user
         """
         if self.opportunity:
             self.log("Autonomous Planning agent is trying to notify the user a 2nd time; ignoring")
-        else:
-            self.log("Autonomous Planning agent is notifying user")
-            self.messenger.notify(description, deal_price, estimated_true_value, url)
-            deal = Deal(product_description=description, price=deal_price, url=url)
-            discount = estimated_true_value - deal_price
-            self.opportunity = Opportunity(
-                deal=deal, estimate=estimated_true_value, discount=discount
-            )
+            return "Already notified; only one notification is allowed"
+        if deal_number not in self.valuations:
+            return "Estimate this deal's value before notifying"
+        deal = self.deals[deal_number]
+        valuation = self.valuations[deal_number]
+        self.log("Autonomous Planning agent is notifying user")
+        self.messenger.notify(deal.title or deal.product_description, deal.price, valuation.estimate, deal.url, deal.currency)
+        self.opportunity = Opportunity(
+            deal=deal,
+            estimate=valuation.estimate,
+            discount=valuation.discount,
+            discount_pct=valuation.discount_pct,
+            confidence=valuation.confidence,
+            confidence_reason=valuation.reason,
+            found_at=datetime.now(timezone.utc),
+        )
         return "Notification sent ok"
 
     scan_function = {
         "name": "scan_the_internet_for_bargains",
-        "description": "Returns top bargains scraped from the internet along with the price each item is being offered for",
+        "description": "Returns today's best bargains from Indian deal channels and sites, numbered, with the price in Indian rupees (INR) and any coupon or bank-offer conditions",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -73,44 +118,32 @@ class AutonomousPlanningAgent(Agent):
 
     estimate_function = {
         "name": "estimate_true_value",
-        "description": "Given the description of an item, estimate how much it is actually worth",
+        "description": "Estimate the typical selling price in India (INR) of one scanned deal, with how far below it the deal is and a confidence label",
         "parameters": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "The description of the item to be estimated",
+                "deal_number": {
+                    "type": "integer",
+                    "description": "The deal_number from the scan results",
                 },
             },
-            "required": ["description"],
+            "required": ["deal_number"],
             "additionalProperties": False,
         },
     }
 
     notify_function = {
         "name": "notify_user_of_deal",
-        "description": "Send the user a push notification about the single most compelling deal; only call this one time",
+        "description": "Send the user a push notification about the single most compelling deal; only call this one time, and only for a deal you have estimated",
         "parameters": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "The description of the item itself scraped from the internet",
-                },
-                "deal_price": {
-                    "type": "number",
-                    "description": "The price offered by this deal scraped from the internet",
-                },
-                "estimated_true_value": {
-                    "type": "number",
-                    "description": "The estimated actual value that this is worth",
-                },
-                "url": {
-                    "type": "string",
-                    "description": "The URL of this deal as scraped from the internet",
+                "deal_number": {
+                    "type": "integer",
+                    "description": "The deal_number of the deal to notify about",
                 },
             },
-            "required": ["description", "deal_price", "estimated_true_value", "url"],
+            "required": ["deal_number"],
             "additionalProperties": False,
         },
     }
@@ -143,10 +176,14 @@ class AutonomousPlanningAgent(Agent):
             results.append({"role": "tool", "content": result, "tool_call_id": tool_call.id})
         return results
 
-    system_message = "You find great deals on bargain products using your tools, and notify the user of the best bargain."
+    system_message = (
+        "You find great deals on products sold in India using your tools, and notify the user of the best bargain. "
+        "All prices are in Indian rupees (INR); never convert currencies."
+    )
     user_message = """
-    First, use your tool to scan the internet for bargain deals. Then for each deal, use your tool to estimate its true value.
-    Then pick the single most compelling deal where the price is much lower than the estimated true value, and use your tool to notify the user.
+    First, use your tool to scan for bargain deals. Then for each deal, use your tool to estimate its true value.
+    Then pick the single most compelling deal: a large discount below the typical Indian price, preferring higher confidence,
+    and use your tool to notify the user about it. If no deal is at least 20% below its typical price, notify nobody.
     Then just reply OK to indicate success.
     """
     messages = [
@@ -154,14 +191,15 @@ class AutonomousPlanningAgent(Agent):
         {"role": "user", "content": user_message},
     ]
 
-    def plan(self, memory: List[str] = []) -> Optional[Opportunity]:
+    def plan(self, memory: List[Opportunity] = []) -> Optional[Opportunity]:
         """
         Run the full workflow, providing the LLM with tools to surface scraped deals to the user
-        :param memory: a list of URLs that have been surfaced in the past
+        :param memory: Opportunities surfaced in the past
         :return: an Opportunity if one was surfaced, otherwise None
         """
         self.log("Autonomous Planning Agent is kicking off a run")
         self.memory = memory
+        self.deals, self.valuations = [], {}
         self.opportunity = None
         messages = self.messages[:]
         done = False

@@ -1,0 +1,92 @@
+# Deal sources. This file is committed and holds example values only.
+# Put your real channel list in sources.local.yaml (gitignored); it is merged on top
+# of this file, and lists in it replace the lists here.
+
+http:
+  user_agent: "BargainSpotter/0.2 (+https://github.com/Yugjohri/Autonomous-Multi-Agent-Bargain-Spotter-)"
+  timeout_seconds: 15
+  retries: 2
+  backoff_seconds: 1.5
+  # Minimum gap between two requests to the same host.
+  min_interval_per_host_seconds: 1.0
+  respect_robots_txt: true
+
+telegram:
+  enabled: true
+  # true = only read the public t.me/s/ web previews, never log in.
+  # Use this for any hosted or public demo: a personal account must never run on a public server.
+  public_only: false
+  session_path: secrets/bargain_spotter.session
+  # Push new posts through the pipeline within seconds (MTProto only).
+  live: true
+  # Posts read per channel on each scan.
+  fetch_limit: 20
+  channel_delay_seconds: 1.5
+  # FloodWait longer than this skips the channel for the current scan instead of sleeping.
+  max_flood_wait_seconds: 300
+  # A channel can be given by username, numeric id (-100...) or invite link (t.me/+...).
+  # Only username channels work with the public preview; the others are MTProto-only.
+  # trust (default 1.0) weights how much a channel's posts count as a quality signal.
+  channels:
+    - username: example_deals_channel   # TODO: replace in sources.local.yaml
+      enabled: false
+      trust: 1.0
+    - id: -1000000000000                # TODO: numeric id example (MTProto only)
+      name: example_private_channel
+      enabled: false
+    - invite: https://t.me/+EXAMPLEINVITE  # TODO: invite link example (MTProto only, join it in the app first)
+      name: example_invite_channel
+      enabled: false
+
+# Generic RSS / Atom feeds.
+rss:
+  - name: dealsmagnet
+    url: https://www.dealsmagnet.com/feed
+    # DISABLED: robots.txt allows /feed, but the DealsMagnet Terms of Service (/ToS) say you
+    # will not "access, monitor or copy any content or information on the Service using any
+    # robot, spider, scraper or other automated means ... without our express written
+    # permission". TODO(you): enable only after getting that permission. See docs/sources.md.
+    enabled: false
+    currency: INR
+    # Offer price and MRP are in the item description; links under /buy, /RedirectTo,
+    # /RD/ and /RDT/ are disallowed by robots.txt and are never followed.
+    limit: 60
+  - name: legacy_us
+    # The original US DealNews feeds, kept for PRICER_MODE=usd_legacy.
+    url:
+      - https://www.dealnews.com/c142/Electronics/?rss=1
+      - https://www.dealnews.com/c39/Computers/?rss=1
+      - https://www.dealnews.com/f1912/Smart-Home/?rss=1
+    enabled: false
+    currency: USD
+    limit: 10
+
+# HTML listing pages of Indian deal communities. See docs/sources.md before enabling.
+# Each site needs: enabled, url, selectors (item, title, price, mrp, link, store, time, votes)
+# and terms_checked: true once you have confirmed its terms allow automated reading.
+aggregators:
+  desidime:
+    # DISABLED: robots.txt allows /new, but the DesiDime Terms of Use forbid using "Automated
+    # Means, Including Spiders, Robots, Crawlers, Data Mining Tools, Or The Like To Download
+    # Data From The Service, Unless Expressly Permitted By DesiDime". The public desidimeHot
+    # Telegram channel covers its hot deals. See docs/sources.md.
+    enabled: false
+    url: https://www.desidime.com/new
+    terms_checked: false
+  buyhatke:
+    # DISABLED: the terms say nothing about automated access, but robots.txt disallows /api/
+    # (including its sitemap and search) and price history pages are rendered from /api/,
+    # so there is no compliant way to read price history. See docs/sources.md.
+    enabled: false
+    url: https://buyhatke.com/
+    terms_checked: false
+
+# Official store APIs. Off: both need an approved affiliate account (see docs/sources.md).
+store_apis:
+  amazon_creators:
+    enabled: false
+  flipkart_affiliate:
+    enabled: false
+
+# Extra shortener hosts to resolve, on top of the built-in list in agents/normalize.py.
+resolve_hosts: []
