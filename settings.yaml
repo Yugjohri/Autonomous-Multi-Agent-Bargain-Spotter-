@@ -18,6 +18,7 @@ ensemble:
     market: 0.0          # median price of similar items in the products_inr store
     mrp: 0.0             # MRP scaled by mrp_factor (MRPs in India are often inflated)
     neural_network: 0.0  # models/nn_inr.pth (scripts/train_nn_inr.py); loaded only when above 0
+    specialist: 0.0      # fine-tuned Llama 3.2 3B in models/specialist_inr/ (GPU); loaded only when above 0
     mrp_factor: 0.75
     # Similar items must be at least this close (cosine distance) to count as market evidence.
     market_max_distance: 0.45

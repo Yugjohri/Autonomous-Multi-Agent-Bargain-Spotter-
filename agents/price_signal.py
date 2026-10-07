@@ -5,6 +5,7 @@ Signals (weights from settings.yaml, ensemble.inr):
   frontier        GPT's estimate of the typical selling price in India, given similar INR items
   market          median price of close neighbours in products_inr (needs a few close items)
   neural_network  the INR model trained by scripts/train_nn_inr.py (off unless it has a weight)
+  specialist      Llama 3.2 3B fine-tuned on INR prices (scripts/train_specialist_inr.py; off unless weighted)
   mrp             MRP scaled down by mrp_factor; MRPs in India are often inflated, so this is weak
 
 The estimate is the weighted mean of the available signals that have a weight. Market and
@@ -26,8 +27,8 @@ from typing import Dict, List, Optional
 from agents.inr_store import Similar
 from agents.money import format_money
 
-DEFAULT_WEIGHTS = {"frontier": 0.6, "market": 0.3, "mrp": 0.1, "neural_network": 0.0}
-STRONG = ("frontier", "market", "neural_network")
+DEFAULT_WEIGHTS = {"frontier": 0.6, "market": 0.3, "mrp": 0.1, "neural_network": 0.0, "specialist": 0.0}
+STRONG = ("frontier", "market", "neural_network", "specialist")
 AGREE = 0.25  # signals within 25% of each other agree
 LOOSE = 0.40
 
@@ -113,6 +114,7 @@ def value_inr(
     market_min_items: int = 3,
     sources_count: int = 1,
     nn_estimate: Optional[float] = None,
+    specialist_estimate: Optional[float] = None,
 ) -> Valuation:
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
     signals: Dict[str, float] = {}
@@ -128,6 +130,9 @@ def value_inr(
     if nn_estimate and nn_estimate > 0 and weights.get("neural_network", 0) > 0:
         signals["neural_network"] = float(nn_estimate)
         notes.append(f"model {format_money(nn_estimate)}")
+    if specialist_estimate and specialist_estimate > 0 and weights.get("specialist", 0) > 0:
+        signals["specialist"] = float(specialist_estimate)
+        notes.append(f"specialist {format_money(specialist_estimate)}")
     if mrp and mrp > price:
         signals["mrp"] = float(mrp) * mrp_factor
         notes.append(f"MRP {format_money(mrp)} x{mrp_factor:g}")

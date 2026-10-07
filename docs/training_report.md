@@ -397,3 +397,119 @@ uv run python scripts/fit_ensemble.py
 uv run python scripts/evaluate_inr.py           # tables and docs/images/*.png
 uv run python scripts/eval_telegram_labels.py   # optional, needs data/labels.csv
 ```
+
+# Phase B: fine-tuning Llama 3.2 3B on INR prices (the INR Specialist)
+
+Run on 7 October 2026 with `scripts/train_specialist_inr.py`, on the same splits, test set
+and harness as Phase A.
+
+## Setup
+
+- Base model `meta-llama/Llama-3.2-3B`, loaded in 4-bit nf4 with bf16 compute (bitsandbytes
+  0.50.2 works natively on Windows with the RTX 5070 Ti; no WSL2 needed).
+- QLoRA with peft and trl: LoRA rank 16, alpha 32, dropout 0.05, on the q, k, v, o, gate,
+  up and down projections. Loss on the completion (the price) only. Max length 256 tokens,
+  batch 16, learning rate 2e-4 (cosine, 3% warmup), paged 8-bit AdamW, 2 epochs, seed 42.
+- Prompt (`agents/items.py`): `What does this cost in India, in rupees?\n\n{text}\n\nPrice is Rs.`
+  with the whole-rupee price as the completion.
+- Each epoch was scored on the full validation split by generating prices (greedy, 8
+  tokens), not by training loss. 0 of 1,254 answers failed to parse.
+- Time and memory: 14 to 18 minutes of training per variant, 3.3 to 6.6 GB peak GPU memory,
+  about 50 minutes for all three variants including scoring.
+
+## Data: with and without Telegram deal prices
+
+| variant | examples | best epoch | val median APE | val within 20% | val mean \|log err\| |
+|---|---|---|---|---|---|
+| base (Phase A train split) | 11,279 | 2 | 20.7% | 47.4% | 0.308 |
+| + 2,856 Telegram products at their median deal price | 14,135 | 2 | **20.6%** | **47.8%** | **0.299** |
+| + the same products at their 75th percentile price | 14,135 | 2 | 21.1% | 46.6% | 0.301 |
+
+Telegram products come from `data/labels.csv` (after `resolve_links.py` and
+`build_labels.py` on 7 October): real Amazon or Flipkart ids seen 2 or more times, one
+example per product however often it was reposted, and none of the validation or test
+products. The median variant was chosen, but the three are within noise of each other: the
+deal-price labels neither helped nor hurt measurably. Epoch 2 beat epoch 1 in every variant
+(about 0.30 against 0.39), so a third epoch might still help.
+
+## Test results
+
+All 599 test items:
+
+| model | median APE | within 10% | within 20% | R² (log) | median pred/actual |
+|---|---|---|---|---|---|
+| TF-IDF + Ridge | 44.8% | 11.7% | 24.2% | 0.500 | 0.66 |
+| INR neural network | 41.4% | 11.0% | 22.4% | 0.653 | 0.66 |
+| **INR Specialist** | **30.4%** | 17.0% | 32.2% | 0.894 | 0.88 |
+
+Median APE by category (whole test set):
+
+| category | n | Specialist | INR network | TF-IDF + Ridge |
+|---|---|---|---|---|
+| large_appliance | 143 | 38% | 57% | 79% |
+| other | 91 | 52% | 57% | 43% |
+| earbuds_headphones | 79 | 17% | 23% | 28% |
+| smartphone | 52 | 32% | 33% | 39% |
+| tv | 45 | 18% | 33% | 27% |
+| laptop | 43 | 24% | 47% | 33% |
+| smartwatch | 43 | 24% | 30% | 32% |
+| tablet | 43 | 25% | 45% | 38% |
+| camera | 38 | 35% | 32% | 49% |
+| mobile_accessory | 13 | 17% | 21% | 39% |
+| computer_accessory | 9 | 39% | 62% | 45% |
+
+By price band: 33% under Rs 1k, 31% for Rs 1k to 10k, 30% for Rs 10k to 50k, 27% over Rs 50k.
+Unlike the network, it holds up on expensive items and on large appliances (38% with only 7
+appliances in training), because the pretrained model already knows something about
+products and their price ranges.
+
+Against GPT on the same 200 sampled test items:
+
+| model | median APE | within 20% | mean \|log err\| |
+|---|---|---|---|
+| INR Specialist | 28.6% | 34.5% | 0.396 |
+| gpt-6-luna (the live Frontier model) | 17.8% | 53.5% | 0.256 |
+
+## Ensemble with gpt-6-luna
+
+`scripts/fit_ensemble.py --frontier frontier@gpt-6-luna` refitted the weights on
+validation over gpt-6-luna, the Specialist, the network, the market median and the MRP, with
+the same rule as Phase A (drop a signal when removing it raises validation mean |log error|
+by less than 0.002).
+
+- Best of all signals: gpt-6-luna 0.8, network 0.1, Specialist 0.1 (validation 0.1814).
+- Removing each one in turn cost less than 0.002, so all were dropped and the fitted
+  weights stay **gpt-6-luna alone** (validation 0.1841). The Specialist was the closest call
+  (0.0016).
+
+Checked on test anyway, with 95% paired bootstrap intervals for the change in mean |log error|
+against gpt-6-luna alone:
+
+| weights (fitted on validation) | test median APE | test within 20% | change vs gpt-6-luna |
+|---|---|---|---|
+| gpt-6-luna alone | 17.8% | 53.5% | |
+| gpt-6-luna 0.9, Specialist 0.1 | 17.5% | 57.0% | -0.0058 (-0.013 to +0.001) |
+| gpt-6-luna 0.8, network 0.1, Specialist 0.1 | 17.1% | 58.5% | -0.0034 (-0.016 to +0.009) |
+
+A small Specialist weight points the right way on both splits, but the gain is inside the
+noise of 200 test items and below the validation threshold. Following the Phase B rule
+(add it only if it improves test error), it is **not enabled**: `ensemble.inr.specialist` is
+0 in `settings.yaml`.
+
+## Serving
+
+`agents/specialist_inr_agent.py` loads the base model in 4-bit plus the adapter from
+`models/specialist_inr/` on the GPU (13 s to load, about 2.2 GB, about 0.2 s per estimate
+after the first). The Ensemble Agent loads it only when `ensemble.inr.specialist` is above
+0 and the adapter exists; otherwise the app runs without it. The Modal `pricer_service.py`
+path is unchanged and used only by `usd_legacy`. A hosted demo cannot use the Specialist
+without a GPU.
+
+## Phase B verdict
+
+The fine-tuned Specialist is the best model trained in this project (30% median error on
+test against 41 to 45% for the network and Ridge), and it is strong exactly where the
+network was weak (appliances, expensive items). It is still well behind gpt-6-luna, and
+blending it in gave a gain too small to separate from noise, so the live app keeps
+gpt-6-luna alone. Ideas that could change this: a third epoch (epoch 2 was still improving),
+and more current non-electronics training data.

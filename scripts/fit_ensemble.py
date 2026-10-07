@@ -28,12 +28,20 @@ from agents.config import get, load_settings
 from agents.evaluator_inr import metrics
 from agents.price_signal import value_inr
 
-SIGNALS = ("frontier", "market", "neural_network", "mrp")
+SIGNALS = ("frontier", "market", "neural_network", "specialist", "mrp")
 COLUMNS = {"frontier": "frontier", "market": "market", "neural_network": "nn"}
+
+
+FRONTIER_COLUMN = "frontier"
+SUFFIX = ""
 
 
 def frame(split: str) -> pd.DataFrame:
     df = load_splits()[split].set_index("product_key").join(load_predictions(split))
+    # The Frontier answers of the model being fitted (e.g. "frontier@gpt-6-luna").
+    df["frontier"] = df[FRONTIER_COLUMN]
+    if "specialist" not in df.columns:
+        df["specialist"] = np.nan
     return df[df["frontier"].notna()]
 
 
@@ -47,7 +55,7 @@ def blend(df: pd.DataFrame, weights, mrp_factor: float):
         # signal only counts when the MRP is above it, as for a live deal.
         v = value_inr(
             price=row.price_inr, mrp=mrp, llm_estimate=row.frontier, weights={s: float(weights.get(s, 0.0)) for s in SIGNALS},
-            mrp_factor=mrp_factor, nn_estimate=row.nn, similars=_fake_market(row.market) if has_market else None,
+            mrp_factor=mrp_factor, nn_estimate=row.nn, specialist_estimate=row.specialist, similars=_fake_market(row.market) if has_market else None,
         )
         estimates.append(v.estimate if v.signals else np.nan)
         confidence.append(v.confidence)
@@ -86,7 +94,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--step", type=float, default=0.05)
     parser.add_argument("--tolerance", type=float, default=0.002)
+    parser.add_argument("--frontier", default="frontier",
+                        help="prediction column for the Frontier signal, e.g. frontier@gpt-6-luna")
     args = parser.parse_args()
+    global FRONTIER_COLUMN
+    FRONTIER_COLUMN = args.frontier
+    global SUFFIX
+    SUFFIX = "" if args.frontier == "frontier" else "@" + args.frontier.split("@")[-1]
 
     settings = load_settings()
     mrp_factor = float(get(settings, "ensemble.inr.mrp_factor", 0.75))
@@ -137,8 +151,8 @@ def main() -> int:
             if label == "fitted ensemble":
                 key = df.index.to_series()
                 pd.DataFrame({"product_key": key.values, "pred": estimates, "confidence": confidence}).to_parquet(
-                    DATA / "predictions" / f"ensemble__{split}.parquet", index=False)
-    (DATA / "ensemble_fit.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+                    DATA / "predictions" / f"ensemble{SUFFIX}__{split}.parquet", index=False)
+    (DATA / f"ensemble_fit{SUFFIX}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     return 0
 
 

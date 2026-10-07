@@ -248,3 +248,61 @@ def test_rebuild_keeps_telegram_rows_and_excludes_holdout(tmp_path):
     items = list(items_from_split(tmp_path / "train.parquet"))
     assert items[1].canonical_id == "" and items[1].source == "split:train/flipkart_khanna"
     assert items[0].price == 1499 and items[0].category == "audio_other"
+
+
+# ------------------------------------------------------------ INR Specialist
+
+
+def test_parse_rupees_takes_the_first_number():
+    from agents.specialist_inr_agent import parse_rupees
+
+    assert parse_rupees(" 17249\n\nSamsung Galaxy") == 17249
+    assert parse_rupees(" 1,299") == 1299
+    assert parse_rupees(" unknown") is None
+
+
+def test_inr_prompt_format():
+    from agents.items import inr_completion, inr_prompt
+
+    assert inr_prompt("Boat Airdopes 141") == "What does this cost in India, in rupees?\n\nBoat Airdopes 141\n\nPrice is Rs."
+    assert inr_completion(1299.4) == " 1299"
+
+
+def test_specialist_signal_needs_a_weight_and_counts_for_confidence():
+    weights = {"frontier": 0.9, "specialist": 0.1, "market": 0.0, "mrp": 0.0}
+    v = value_inr(price=999, llm_estimate=1500, specialist_estimate=1400, weights=weights)
+    assert v.signals["specialist"] == 1400 and v.estimate == round(0.9 * 1500 + 0.1 * 1400)
+    assert v.confidence == "medium"
+    off = value_inr(price=999, llm_estimate=1500, specialist_estimate=1400)
+    assert "specialist" not in off.signals
+
+
+def test_ensemble_uses_injected_specialist(tmp_path):
+    import chromadb
+
+    from agents.ensemble_agent import EnsembleAgent
+    from agents.inr_store import InrProductStore
+    from tests.test_valuation import FakeEncoder, FakeFrontier
+
+    class FakeSpecialist:
+        def price(self, text):
+            return 1400.0
+
+    store = InrProductStore(client=chromadb.PersistentClient(path=str(tmp_path / "c")), encoder=FakeEncoder())
+    settings = {"pricer_mode": "inr", "ensemble": {"inr": {"frontier": 0.9, "specialist": 0.1}}}
+    ensemble = EnsembleAgent(settings=settings, inr_store=store, frontier=FakeFrontier(1500), specialist=FakeSpecialist())
+    deal = Deal(product_description="x", title="Phone", price=999, url="https://www.amazon.in/dp/B0ABCDEFGH")
+    assert ensemble.value(deal).signals["specialist"] == 1400
+
+
+def test_ensemble_skips_specialist_without_adapter(tmp_path, monkeypatch):
+    import chromadb
+
+    from agents.ensemble_agent import EnsembleAgent
+    from agents.inr_store import InrProductStore
+    from tests.test_valuation import FakeEncoder, FakeFrontier
+
+    monkeypatch.chdir(tmp_path)
+    store = InrProductStore(client=chromadb.PersistentClient(path=str(tmp_path / "c")), encoder=FakeEncoder())
+    settings = {"pricer_mode": "inr", "ensemble": {"inr": {"frontier": 0.9, "specialist": 0.1}}}
+    assert EnsembleAgent(settings=settings, inr_store=store, frontier=FakeFrontier(1500)).inr_specialist is None

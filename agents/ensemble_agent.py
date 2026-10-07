@@ -29,7 +29,7 @@ class EnsembleAgent(Agent):
     color = Agent.YELLOW
 
     def __init__(self, collection=None, settings: Optional[dict] = None, inr_store: Optional[InrProductStore] = None,
-                 frontier=None, offline: bool = False, inr_model=None):
+                 frontier=None, offline: bool = False, inr_model=None, specialist=None):
         """
         Create an instance of Ensemble, by creating each of the models
         And loading the weights of the Ensemble
@@ -60,7 +60,25 @@ class EnsembleAgent(Agent):
             self.inr_model = inr_model
             if self.inr_model is None and self.weights.get("neural_network", 0) > 0:
                 self.inr_model = self._load_inr_model()
+            self.inr_specialist = specialist
+            if self.inr_specialist is None and self.weights.get("specialist", 0) > 0:
+                self.inr_specialist = self._load_specialist()
         self.log(f"Ensemble Agent is ready ({self.mode} mode)")
+
+    def _load_specialist(self):
+        """The fine-tuned INR Specialist is optional: without its adapter or a GPU it is skipped."""
+        from pathlib import Path
+
+        from agents.specialist_inr_agent import ADAPTER, SpecialistInrAgent
+
+        if not Path(ADAPTER, "adapter_config.json").exists():
+            self.log(f"No {ADAPTER}; valuing without the INR Specialist (scripts/train_specialist_inr.py builds it)")
+            return None
+        try:
+            return SpecialistInrAgent()
+        except Exception as exc:  # noqa: BLE001 - a missing GPU or library should not stop the app
+            self.log(f"Could not load the INR Specialist ({exc}); valuing without it")
+            return None
 
     def _load_inr_model(self):
         """The trained INR network is optional: without models/nn_inr.pth the signal is skipped."""
@@ -122,6 +140,12 @@ class EnsembleAgent(Agent):
                 llm_estimate = self.frontier.estimate_inr(text, similars[:5])
             except Exception as exc:  # noqa: BLE001 - one failed call should not lose the deal
                 self.log(f"Frontier Agent failed ({exc}); valuing without it")
+        specialist_estimate = None
+        if self.inr_specialist is not None:
+            try:
+                specialist_estimate = self.inr_specialist.price(text)
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"INR Specialist failed ({exc}); valuing without it")
         nn_estimate = None
         if self.inr_model is not None:
             try:
@@ -133,12 +157,14 @@ class EnsembleAgent(Agent):
             mrp=deal.mrp,
             llm_estimate=llm_estimate,
             similars=similars,
-            weights={k: self.weights[k] for k in ("frontier", "market", "mrp", "neural_network") if k in self.weights},
+            weights={k: self.weights[k] for k in ("frontier", "market", "mrp", "neural_network", "specialist")
+                     if k in self.weights},
             mrp_factor=float(self.weights.get("mrp_factor", 0.75)),
             market_max_distance=float(self.weights.get("market_max_distance", 0.45)),
             market_min_items=int(self.weights.get("market_min_items", 3)),
             sources_count=len(deal.seen_in) or 1,
             nn_estimate=nn_estimate,
+            specialist_estimate=specialist_estimate,
         )
         valuation = cap_for_multipack(valuation, text)
         valuation = cap_for_listing(valuation, deal.url)
