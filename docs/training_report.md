@@ -33,7 +33,8 @@ Recommendation: **do not enable the neural network.** Keep GPT as the estimator 
 in data (more categories, current prices) before more model work. Details below.
 
 After this report the Frontier was switched from gpt-5.1 to the much cheaper gpt-6-luna,
-which was as accurate within noise; all other Frontier numbers here are gpt-5.1's.
+which was as accurate within noise; all other Frontier numbers here are gpt-5.1's. Phase B
+(at the end) then added the fine-tuned INR Specialist at a 20% weight next to gpt-6-luna.
 
 ## Setup
 
@@ -492,9 +493,8 @@ against gpt-6-luna alone:
 | gpt-6-luna 0.8, network 0.1, Specialist 0.1 | 17.1% | 58.5% | -0.0034 (-0.016 to +0.009) |
 
 A small Specialist weight points the right way on both splits, but the gain is inside the
-noise of 200 test items and below the validation threshold. Following the Phase B rule
-(add it only if it improves test error), it is **not enabled**: `ensemble.inr.specialist` is
-0 in `settings.yaml`.
+noise of 200 test items and below the validation threshold, so the 2-epoch Specialist was
+not enabled. The 3-epoch run below changed this.
 
 ## Serving
 
@@ -505,11 +505,46 @@ after the first). The Ensemble Agent loads it only when `ensemble.inr.specialist
 path is unchanged and used only by `usd_legacy`. A hosted demo cannot use the Specialist
 without a GPU.
 
+## Third epoch
+
+Because epoch 2 was still clearly better than epoch 1, the chosen variant (Telegram median)
+was retrained for 3 epochs (`--variants telegram_median --epochs 3`, 30 minutes of training).
+The 2-epoch adapter was kept aside and the two were compared on validation only.
+
+| run | checkpoint | val median APE | val within 20% | val mean \|log err\| |
+|---|---|---|---|---|
+| 2 epochs (previous) | epoch 2 | 20.6% | 47.8% | 0.299 |
+| 3 epochs | epoch 1 | 30.2% | 35.2% | 0.435 |
+| 3 epochs | epoch 2 | 20.1% | 47.8% | 0.307 |
+| **3 epochs** | **epoch 3** | **20.0%** | **49.8%** | **0.286** |
+
+The 3-epoch adapter won on validation and replaced the 2-epoch one. On test it reached
+**27.1%** median error and 34.7% within 20% on all 599 items (2 epochs: 30.4% and 32.2%),
+and 26.0% on the 200 sampled items.
+
+Refitting the weights with the same rule as before (`fit_ensemble.py --frontier
+frontier@gpt-6-luna`): market, MRP and the network were dropped, but removing the
+Specialist now raises validation error by 0.0053, above the 0.002 threshold, so it stays.
+Fitted weights: **gpt-6-luna 0.8, Specialist 0.2**.
+
+| on the same sampled items | val median APE | val within 20% | test median APE | test within 20% |
+|---|---|---|---|---|
+| gpt-6-luna alone | 11.2% | 67.7% | 17.8% | 53.5% |
+| gpt-6-luna 0.8 + Specialist 0.2 | 11.5% | 66.7% | **17.4%** | **58.0%** |
+
+Change in mean |log error| against gpt-6-luna alone (95% paired bootstrap): validation
+-0.0053 (-0.013 to +0.002), test -0.0079 (-0.020 to +0.005). Both point the same way and
+test error improves, which meets the Phase B rule, but neither interval excludes zero:
+this is a small gain, not a proven one. The confidence mix barely moves (test: 32% high,
+19% medium, 50% low, against 32%, 20% and 48%).
+
 ## Phase B verdict
 
-The fine-tuned Specialist is the best model trained in this project (30% median error on
+The fine-tuned Specialist is the best model trained in this project (27% median error on
 test against 41 to 45% for the network and Ridge), and it is strong exactly where the
-network was weak (appliances, expensive items). It is still well behind gpt-6-luna, and
-blending it in gave a gain too small to separate from noise, so the live app keeps
-gpt-6-luna alone. Ideas that could change this: a third epoch (epoch 2 was still improving),
-and more current non-electronics training data.
+network was weak (appliances, expensive items). It is still well behind gpt-6-luna on its
+own, but as a 20% second opinion it passed both the validation rule and the test check, so
+**it is switched on** in `settings.yaml` (`frontier: 0.8`, `specialist: 0.2`). It runs on
+the local GPU (about 2.2 GB, 0.2 s per deal); without a GPU or the adapter (a fresh clone,
+a hosted demo) the app falls back to gpt-6-luna alone. Setting `specialist: 0` and
+`frontier: 1.0` switches it off.
